@@ -249,9 +249,11 @@ def _execute(line):
     return "unknown command: %s (try 'help')" % name
 
 
-def _serve_client(conn):
+def _serve_client(conn, addr):
     try:
+        client_ip = addr[0] if addr else "unknown"
         conn.send(b"\r\nESP32-C6 shell - type 'help'\r\n")
+        conn.send(("client: %s\r\n" % client_ip).encode())
         while True:
             conn.send(b"> ")
             line = _read_line(conn)
@@ -283,4 +285,4 @@ def run_shell(port=SHELL_PORT):
         except Exception:
             continue
         print("shell client:", addr)
-        _serve_client(conn)
+        _serve_client(conn, addr)
