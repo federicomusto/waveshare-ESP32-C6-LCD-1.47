@@ -1,0 +1,2 @@
+# Waveshare ESP32-C6-LCD-1.47 has 4 MB flash; the example default is 2 MB.
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
