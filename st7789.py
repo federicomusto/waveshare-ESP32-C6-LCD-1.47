@@ -144,6 +144,8 @@ class ST7789:
                 y0 += sy
 
     def text(self, s, x, y, color=0xFFFF, scale=1):
+        if not s:
+            return
         import framebuf
         w = 8 * len(s)
         h = 8

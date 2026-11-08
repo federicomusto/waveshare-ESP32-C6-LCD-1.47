@@ -1,6 +1,6 @@
 # Waveshare ESP32-C6-LCD-1.47 — MicroPython
 
-MicroPython driver and interactive demo for the
+MicroPython driver, WiFi manager and remote shell for the
 [Waveshare ESP32-C6-LCD-1.47](https://www.waveshare.com/esp32-c6-lcd-1.47.htm)
 development board (1.47" 172×320 ST7789 IPS LCD).
 
@@ -16,6 +16,9 @@ development board (1.47" 172×320 ST7789 IPS LCD).
 ## Files
 
 - `st7789.py` — minimal ST7789 driver (software rotation), verified on hardware.
+- `main.py` — default program: WiFi manager + remote shell.
+- `wifi_manager.py` — AP hotspot + web config + STA connect logic.
+- `shell.py` — TCP command shell (mem, cpu, wifi, gpio, spi, i2c scan, ...).
 - `demo/demo01.py` — interactive demo: 3 screens toggled with the **BOOT** button.
   1. board specs (chip, CPU, RAM/ROM/flash, radio, MicroPython version)
   2. "HELLO" + bouncing ball (random path each loop)
@@ -37,6 +40,27 @@ development board (1.47" 172×320 ST7789 IPS LCD).
 | BOOT button | 9 |
 | RESET button | ESP_RST |
 
+## WiFi config & remote shell
+
+On first boot (no saved network) the board opens an open hotspot
+`ESP32-C6-Config` on `192.168.4.1`. Connect a phone and open
+http://192.168.4.1 to pick a network and enter the password. The credentials
+are saved to `wifi_config.json` and reused on every boot. Hold **BOOT** within
+5 s of reset to force the config portal.
+
+Once connected, the board runs a TCP shell on port **2323**:
+
+```
+telnet <ip> 2323    # or  nc <ip> 2323
+```
+
+Commands: `help`, `mem`, `cpu`, `wifi`, `gpio <pin>`, `spi`,
+`i2c scan [sda] [scl]`, `freq`, `flash`, `uname`, `version`, `uptime`,
+`status`, `check`, `exit`.
+
+RGB LED states: white blink = AP mode, solid white = connected,
+solid red = connection failed (auto-returns to AP after 5 s).
+
 ## Setup
 
 1. Flash MicroPython for ESP32-C6:
@@ -48,15 +72,17 @@ development board (1.47" 172×320 ST7789 IPS LCD).
    esptool --port /dev/ttyACM0 --chip esp32c6 write_flash -z 0x0 firmware.bin
    ```
 
-2. Copy the files to the board:
+2. Copy the files to the board (WiFi manager program):
 
    ```
    mpremote connect /dev/ttyACM0 cp st7789.py :st7789.py
-   mpremote connect /dev/ttyACM0 cp demo/demo01.py :main.py
+   mpremote connect /dev/ttyACM0 cp wifi_manager.py :wifi_manager.py
+   mpremote connect /dev/ttyACM0 cp shell.py :shell.py
+   mpremote connect /dev/ttyACM0 cp main.py :main.py
    mpremote connect /dev/ttyACM0 reset
    ```
 
-3. Press **BOOT** to cycle through the three screens.
+   For the demo instead, copy `demo/demo01.py` as `:main.py`.
 
 ## Driver notes (all verified on hardware)
 
