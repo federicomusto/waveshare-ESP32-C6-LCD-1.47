@@ -16,13 +16,14 @@ development board (1.47" 172×320 ST7789 IPS LCD).
 ## Files
 
 - `st7789.py` — minimal ST7789 driver (software rotation), verified on hardware.
-- `main.py` — default program: WiFi manager + remote shell.
-- `wifi_manager.py` — AP hotspot + web config + STA connect logic.
-- `shell.py` — TCP command shell (mem, cpu, wifi, gpio, spi, i2c scan, ...).
 - `demo/demo01.py` — interactive demo: 3 screens toggled with the **BOOT** button.
   1. board specs (chip, CPU, RAM/ROM/flash, radio, MicroPython version)
   2. "HELLO" + bouncing ball (random path each loop)
   3. RGB LED color cycle
+- `demo/demo02/` — WiFi manager + remote shell (the "main" program):
+  - `main.py` — boot flow: auto-connect, AP config portal, shell, screensaver.
+  - `wifi_manager.py` — AP hotspot + web config + STA connect logic.
+  - `shell.py` — TCP command shell (mem, cpu, wifi, gpio, spi, i2c scan, ...).
 
 ## Pinout
 
@@ -80,17 +81,18 @@ through colors; press BOOT to return to the connected screen.
    esptool --port /dev/ttyACM0 --chip esp32c6 write_flash -z 0x0 firmware.bin
    ```
 
-2. Copy the files to the board (WiFi manager program):
+2. Copy the files to the board. For the WiFi manager + shell (demo02):
 
    ```
    mpremote connect /dev/ttyACM0 cp st7789.py :st7789.py
-   mpremote connect /dev/ttyACM0 cp wifi_manager.py :wifi_manager.py
-   mpremote connect /dev/ttyACM0 cp shell.py :shell.py
-   mpremote connect /dev/ttyACM0 cp main.py :main.py
+   mpremote connect /dev/ttyACM0 cp demo/demo02/wifi_manager.py :wifi_manager.py
+   mpremote connect /dev/ttyACM0 cp demo/demo02/shell.py :shell.py
+   mpremote connect /dev/ttyACM0 cp demo/demo02/main.py :main.py
    mpremote connect /dev/ttyACM0 reset
    ```
 
-   For the demo instead, copy `demo/demo01.py` as `:main.py`.
+   For the interactive demo (demo01) instead, copy `demo/demo01.py` as `:main.py`
+   (`st7789.py` is still required).
 
 ## Driver notes (all verified on hardware)
 
