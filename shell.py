@@ -1,6 +1,6 @@
 """TCP command shell for ESP32-C6 (MicroPython).
 
-Connect with:  telnet <ip> 2323   (or  nc <ip> 2323)
+Connect with:  telnet <ip>   (or  nc <ip> 23)
 """
 import socket
 import gc
@@ -9,7 +9,7 @@ import sys
 import esp
 import time
 
-SHELL_PORT = 2323
+SHELL_PORT = 23
 _boot_ms = time.ticks_ms()
 
 

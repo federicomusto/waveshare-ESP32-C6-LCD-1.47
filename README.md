@@ -48,10 +48,10 @@ http://192.168.4.1 to pick a network and enter the password. The credentials
 are saved to `wifi_config.json` and reused on every boot. Hold **BOOT** within
 5 s of reset to force the config portal.
 
-Once connected, the board runs a TCP shell on port **2323**:
+Once connected, the board runs a TCP shell on the standard telnet port **23**:
 
 ```
-telnet <ip> 2323    # or  nc <ip> 2323
+telnet <ip>    # or  nc <ip> 23
 ```
 
 Commands: `help`, `mem`, `cpu`, `wifi`, `gpio <pin>`, `spi`,
