@@ -1,8 +1,11 @@
-# Waveshare ESP32-C6-LCD-1.47 — MicroPython
+# Waveshare ESP32-C6-LCD-1.47
 
-MicroPython driver, WiFi manager and remote shell for the
+Drivers and demos for the
 [Waveshare ESP32-C6-LCD-1.47](https://www.waveshare.com/esp32-c6-lcd-1.47.htm)
-development board (1.47" 172×320 ST7789 IPS LCD).
+development board (1.47" 172×320 ST7789 IPS LCD), in two flavors:
+
+- **MicroPython** — driver, interactive demo, WiFi manager + remote shell (repo root).
+- **ESP-IDF (C)** — native ST7789 driver + demo (see [`esp-idf/`](esp-idf/)).
 
 ## Board
 
@@ -24,6 +27,9 @@ development board (1.47" 172×320 ST7789 IPS LCD).
   - `main.py` — boot flow: auto-connect, AP config portal, shell, screensaver.
   - `wifi_manager.py` — AP hotspot + web config + STA connect logic.
   - `shell.py` — TCP command shell (mem, cpu, wifi, gpio, spi, i2c scan, ...).
+- `esp-idf/` — native C port of the ST7789 driver for ESP-IDF v5.5.x
+  (init, fill, fill_rect, rect, text with a built-in 5x7 font, software
+  rotation) plus a demo app. See [`esp-idf/README.md`](esp-idf/README.md).
 
 ## Pinout
 
@@ -105,6 +111,16 @@ through colors; press BOOT to return to the connected screen.
 - Rotate in **software** (keep MV=0). Hardware MV rotation fragments the
   image because of the 34-column offset.
 - The RGB LED is a WS2812 in **GRB** order: write `(g, r, b)` to `neopixel`.
+
+## ESP-IDF (C)
+
+The `esp-idf/` directory holds a native C port of the ST7789 driver — same
+verified init sequence (MADCTL `0x00`, COLMOD `0x55`, INVON), column offset 34
+and software rotation as the MicroPython version — plus a demo app. Requires
+ESP-IDF v5.5.x, target `esp32c6`, 4 MB flash (set via `sdkconfig.defaults`).
+
+See [`esp-idf/README.md`](esp-idf/README.md) for the API and build/flash
+instructions (note: after `idf.py flash` the LCD needs a manual reset).
 
 ## License
 
