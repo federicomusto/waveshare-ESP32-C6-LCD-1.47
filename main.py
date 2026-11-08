@@ -13,11 +13,11 @@ RGB LED states:
   * solid red         = connection failed (auto-returns to AP after 5 s)
 
 Screensaver:
-  After 60 s without a BOOT press the "connected" screen is replaced by a
-  black screen showing only the board IP and a drifting clock (date + time
-  with its UTC offset); both texts drift independently every 3 s while the
-  RGB LED cycles through colors. Pressing BOOT returns to the connected
-  screen and restarts the 60 s timer.
+  The "connected" screen shows a 60-second countdown; when it reaches zero the
+  screen is replaced by a black screen showing only the board IP and a
+  drifting clock (date + time with its UTC offset); both texts drift
+  independently every 3 s while the RGB LED cycles through colors. Pressing
+  BOOT returns to the connected screen and restarts the 60 s timer.
 
 Everything is single-threaded: the shell (shell.py) accepts an optional
 `tick` callback that it invokes ~5x/s while waiting for connections/input,
@@ -166,6 +166,7 @@ sa_last_press = time.ticks_ms()   # last BOOT press (resets the idle timer)
 sa_last_move = 0           # when the clock last moved
 sa_last_color = 0          # when the LED color last changed
 sa_color_idx = 0           # index into SA_COLORS
+sa_last_count = -1         # last countdown value drawn (avoids redraw)
 ip_x, ip_y = 8, 10         # IP text position (drifts)
 ip_dx, ip_dy = 1, 1        # IP drift direction (+/-1)
 sa_x, sa_y = 8, 44         # clock text position (drifts)
@@ -198,11 +199,17 @@ def sync_time():
         return False
 
 
-def draw_connected(ip, ssid=""):
-    """Draw the normal 'connected' screen and light the LED solid white."""
+def draw_connected(ip, ssid="", remaining=None):
+    """Draw the 'connected' screen and light the LED solid white.
+
+    When `remaining` is given, a "Screensaver in Ns" countdown line is shown.
+    """
     set_white(255)
-    show(["Connected", ssid, "IP: " + ip,
-          "Shell: %s:%d" % (ip, shell.SHELL_PORT)], GREEN)
+    lines = ["Connected", ssid, "IP: " + ip,
+             "Shell: %s:%d" % (ip, shell.SHELL_PORT)]
+    if remaining is not None:
+        lines.append("Screensaver in %ds" % remaining)
+    show(lines, GREEN)
 
 
 def draw_screensaver(ip):
@@ -219,67 +226,79 @@ def draw_screensaver(ip):
 def sa_tick():
     """One non-blocking screensaver step (called ~5x/s by the shell).
 
-    Manages the 60-second idle countdown and, once in screensaver mode, drifts
-    the IP and clock texts every 3 s and cycles the RGB color every 1.5 s.
-    A BOOT press exits the screensaver (back to the connected screen) and
-    resets the timer.
+    Shows a 60-second countdown on the connected screen, then enters the
+    screensaver at zero. Once in screensaver mode, drifts the IP and clock
+    texts every 3 s and cycles the RGB color every 1.5 s. A BOOT press exits
+    the screensaver (back to the connected screen) and restarts the countdown.
     """
     global sa_on, sa_last_press, sa_last_move, sa_last_color, sa_color_idx
-    global ip_x, ip_y, ip_dx, ip_dy, sa_x, sa_y, sa_dx, sa_dy
+    global sa_last_count, ip_x, ip_y, ip_dx, ip_dy, sa_x, sa_y, sa_dx, sa_dy
     now = time.ticks_ms()
 
-    # BOOT press (debounced): exit screensaver + reset the idle timer.
+    # BOOT press (debounced): exit screensaver + restart the countdown.
     if btn.value() == 0:
         time.sleep_ms(30)
         if btn.value() == 0:
             sa_last_press = now
+            sa_last_count = SA_IDLE_MS // 1000
             if sa_on:
                 sa_on = False
-                draw_connected(sa_ip, sa_ssid)
+            draw_connected(sa_ip, sa_ssid, SA_IDLE_MS // 1000)
             while btn.value() == 0:      # wait for the button to be released
                 time.sleep_ms(20)
 
-    # Enter the screensaver after the idle timeout.
-    if not sa_on and time.ticks_diff(now, sa_last_press) >= SA_IDLE_MS:
-        sa_on = True
-        sa_last_move = now
-        sa_last_color = now
-        sa_color_idx = 0
-        ip_x, ip_y = 8, 10
-        ip_dx, ip_dy = 1, 1
-        sa_x, sa_y = 8, 44
-        sa_dx, sa_dy = -1, 1
-        draw_screensaver(sa_ip)
+    if not sa_on:
+        # Connected screen: show the countdown, redrawn once per second.
+        remaining_ms = SA_IDLE_MS - time.ticks_diff(now, sa_last_press)
+        count = (remaining_ms + 999) // 1000   # ceiling -> whole seconds
+        if count < 0:
+            count = 0
+        if count != sa_last_count:
+            sa_last_count = count
+            if count == 0:
+                # Time's up: enter the screensaver.
+                sa_on = True
+                sa_last_move = now
+                sa_last_color = now
+                sa_color_idx = 0
+                ip_x, ip_y = 8, 10
+                ip_dx, ip_dy = 1, 1
+                sa_x, sa_y = 8, 44
+                sa_dx, sa_dy = -1, 1
+                draw_screensaver(sa_ip)
+            else:
+                draw_connected(sa_ip, sa_ssid, count)
+        return
 
-    if sa_on:
-        # Move both texts every 3 s, bouncing off the screen edges.
-        if time.ticks_diff(now, sa_last_move) >= SA_MOVE_MS:
-            sa_last_move = now
-            # IP text: "IP: a.b.c.d" is ~18 chars (~144 px wide)
+    # sa_on: the screensaver is showing.
+    # Move both texts every 3 s, bouncing off the screen edges.
+    if time.ticks_diff(now, sa_last_move) >= SA_MOVE_MS:
+        sa_last_move = now
+        # IP text: "IP: a.b.c.d" is ~18 chars (~144 px wide)
+        ip_x += ip_dx * 12
+        ip_y += ip_dy * 12
+        if ip_x <= 0 or ip_x > W - 150:
+            ip_dx = -ip_dx
             ip_x += ip_dx * 12
+        if ip_y <= 0 or ip_y > H - 12:
+            ip_dy = -ip_dy
             ip_y += ip_dy * 12
-            if ip_x <= 0 or ip_x > W - 150:
-                ip_dx = -ip_dx
-                ip_x += ip_dx * 12
-            if ip_y <= 0 or ip_y > H - 12:
-                ip_dy = -ip_dy
-                ip_y += ip_dy * 12
-            # Clock text: ~24 chars with the UTC suffix (~192 px wide)
+        # Clock text: ~24 chars with the UTC suffix (~192 px wide)
+        sa_x += sa_dx * 12
+        sa_y += sa_dy * 12
+        if sa_x <= 0 or sa_x > W - 200:
+            sa_dx = -sa_dx
             sa_x += sa_dx * 12
+        if sa_y <= 0 or sa_y > H - 12:
+            sa_dy = -sa_dy
             sa_y += sa_dy * 12
-            if sa_x <= 0 or sa_x > W - 200:
-                sa_dx = -sa_dx
-                sa_x += sa_dx * 12
-            if sa_y <= 0 or sa_y > H - 12:
-                sa_dy = -sa_dy
-                sa_y += sa_dy * 12
-            draw_screensaver(sa_ip)
-        # Cycle the RGB color.
-        if time.ticks_diff(now, sa_last_color) >= SA_COLOR_MS:
-            sa_last_color = now
-            sa_color_idx = (sa_color_idx + 1) % len(SA_COLORS)
-            np[0] = SA_COLORS[sa_color_idx]
-            np.write()
+        draw_screensaver(sa_ip)
+    # Cycle the RGB color.
+    if time.ticks_diff(now, sa_last_color) >= SA_COLOR_MS:
+        sa_last_color = now
+        sa_color_idx = (sa_color_idx + 1) % len(SA_COLORS)
+        np[0] = SA_COLORS[sa_color_idx]
+        np.write()
 
 
 def enter_connected(ip, ssid=""):
@@ -288,12 +307,13 @@ def enter_connected(ip, ssid=""):
     The shell drives the screensaver via sa_tick(), so this call never
     returns. Must be called only after a successful connection.
     """
-    global sa_ip, sa_ssid, sa_last_press
+    global sa_ip, sa_ssid, sa_last_press, sa_last_count
     sa_ip = ip
     sa_ssid = ssid
     sa_last_press = time.ticks_ms()   # start the 60 s idle window
+    sa_last_count = SA_IDLE_MS // 1000
     sync_time()
-    draw_connected(ip, ssid)
+    draw_connected(ip, ssid, SA_IDLE_MS // 1000)
     shell.run_shell(tick=sa_tick)     # blocks forever
 
 
