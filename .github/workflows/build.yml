@@ -1,0 +1,50 @@
+name: Compile MicroPython (.mpy)
+
+# Builds the MicroPython cross-compiler (mpy-cross) for the firmware version
+# running on the board, then compiles every .py file in the repo to bytecode
+# (.mpy) and uploads the result as a downloadable artifact.
+#
+# The tag below (v1.29.0) must match the MicroPython firmware flashed on the
+# board, because the .mpy bytecode version is tied to the interpreter version.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build mpy-cross (MicroPython v1.29.0)
+        run: |
+          git clone --depth 1 --branch v1.29.0 \
+            https://github.com/micropython/micropython.git /tmp/micropython
+          make -C /tmp/micropython/mpy-cross -j2
+
+      - name: Compile all .py files to .mpy
+        run: |
+          mkdir -p build
+          find . -name '*.py' -not -path './.git/*' | while read -r f; do
+            out="build/${f#./}"
+            out="${out%.py}.mpy"
+            mkdir -p "$(dirname "$out")"
+            echo "Compiling $f -> $out"
+            /tmp/micropython/mpy-cross/mpy-cross -o "$out" "$f"
+          done
+          echo '--- build output ---'
+          find build -type f | sort
+
+      - name: Upload .mpy artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mpy-compiled
+          path: build/**/*.mpy
+          if-no-files-found: error
