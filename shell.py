@@ -26,6 +26,10 @@ SHELL_PORT = 23        # standard telnet port
 # a real uptime.
 _boot_ms = time.ticks_ms()
 
+# Human-readable names for the WiFi auth-mode values returned by WLAN.scan().
+AUTH_NAMES = {0: "open", 1: "WEP", 2: "WPA", 3: "WPA2",
+              4: "WPA/WPA2", 5: "WPA2-Ent", 6: "WPA3", 7: "WPA2/WPA3"}
+
 
 def _read_line(conn, tick=None):
     """Read one line from the socket, byte by byte, until a newline.
@@ -67,6 +71,8 @@ def _cmd_help():
         "  mem                  memory status\r\n"
         "  cpu                  detailed CPU info\r\n"
         "  wifi                 WiFi status\r\n"
+        "  wifi scan            list visible WiFi networks\r\n"
+        "  bt                   BLE scan (disabled: firmware bug)\r\n"
         "  gpio <pin>           read a GPIO pin\r\n"
         "  spi                  SPI bus + onboard devices\r\n"
         "  i2c scan [sda] [scl] scan I2C bus (default 18 19)\r\n"
@@ -107,12 +113,14 @@ def _cmd_cpu():
     ])
 
 
-def _cmd_wifi():
-    """Show STA (client) and AP (hotspot) state.
+def _cmd_wifi(args=None):
+    """WiFi info or scan.
 
-    When the STA is connected we also report IP/netmask/gateway/DNS and,
-    if the driver supports it, RSSI and MAC.
+    Usage: wifi          -> STA/AP state
+           wifi scan     -> list visible networks
     """
+    if args and args[0] == "scan":
+        return _wifi_scan()
     import network
     sta = network.WLAN(network.STA_IF)
     ap = network.WLAN(network.AP_IF)
@@ -145,6 +153,32 @@ def _cmd_wifi():
     if ap.active():
         lines.append("AP SSID: %s" % ap.config('essid'))
         lines.append("AP IP: %s" % ap.ifconfig()[0])
+    return "\r\n".join(lines)
+
+
+def _wifi_scan():
+    """Scan for visible WiFi networks, strongest first."""
+    import network
+    sta = network.WLAN(network.STA_IF)
+    sta.active(True)                    # STA must be on to scan
+    try:
+        nets = sta.scan()
+    except Exception as e:
+        return "WiFi scan error: %s" % e
+    # Dedupe by SSID, keep the strongest sighting (same SSID on several APs).
+    seen = {}
+    for ssid, bssid, chan, rssi, authmode, hidden in nets:
+        if not ssid:
+            continue                    # skip hidden networks
+        name = ssid.decode()
+        if name not in seen or rssi > seen[name][0]:
+            seen[name] = (rssi, authmode)
+    if not seen:
+        return "No networks found"
+    lines = ["WiFi networks:"]
+    for name, (rssi, auth) in sorted(seen.items(), key=lambda kv: -kv[1][0]):
+        lines.append("  %-24s %4d dBm  %s" %
+                     (name, rssi, AUTH_NAMES.get(auth, "?")))
     return "\r\n".join(lines)
 
 
@@ -221,6 +255,19 @@ def _cmd_i2c(args):
         return "No I2C devices on SDA%d/SCL%d" % (sda, scl)
     return "I2C devices (SDA%d/SCL%d): %s" % (sda, scl,
                                               [hex(d) for d in devs])
+
+
+# --- Bluetooth (BLE) scanning ----------------------------------------------
+def _cmd_bt(args):
+    """Bluetooth.
+
+    BLE scanning is DISABLED on this board: MicroPython v1.29.0 (ESP32-C6)
+    crashes (Guru Meditation inside NimBLE) on an active scan and hangs on a
+    passive scan while WiFi is active. Re-enable once a fixed firmware ships.
+    """
+    return ("BLE scan disabled: MicroPython v1.29.0 (ESP32-C6) crashes/hangs "
+            "on BLE scan while WiFi is active (NimBLE bug).\r\n"
+            "Use 'wifi scan' for WiFi networks.")
 
 
 def _cmd_freq():
@@ -305,7 +352,9 @@ def _execute(line):
     if name == "cpu":
         return _cmd_cpu()
     if name == "wifi":
-        return _cmd_wifi()
+        return _cmd_wifi(args)
+    if name in ("bt", "ble"):
+        return _cmd_bt(args)
     if name == "gpio":
         return _cmd_gpio(args)
     if name == "spi":

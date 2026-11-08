@@ -54,9 +54,13 @@ Once connected, the board runs a TCP shell on the standard telnet port **23**:
 telnet <ip>    # or  nc <ip> 23
 ```
 
-Commands: `help`, `mem`, `cpu`, `wifi`, `gpio <pin>`, `spi`,
+Commands: `help`, `mem`, `cpu`, `wifi`, `wifi scan`, `gpio <pin>`, `spi`,
 `i2c scan [sda] [scl]`, `freq`, `flash`, `uname`, `version`, `uptime`,
 `time`, `status`, `check`, `exit`.
+
+Note: BLE scanning (`bt`) is disabled — MicroPython v1.29.0 on the ESP32-C6
+crashes (Guru Meditation in NimBLE) on an active scan and hangs on a passive
+scan while WiFi is active.
 
 RGB LED states: white blink = AP mode, solid white = connected,
 solid red = connection failed (auto-returns to AP after 5 s).
