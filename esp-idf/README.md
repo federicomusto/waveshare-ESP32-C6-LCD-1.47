@@ -6,8 +6,8 @@ verified on hardware.
 
 ## Requirements
 
-- ESP-IDF v5.5.x (tested with v5.5.6), target `esp32c6`.
-- On this Pi: `source /root/esp/esp-idf/export.sh` first.
+- ESP-IDF v6.1 (also builds on v5.5.x), target `esp32c6`.
+- `espressif/led_strip` (fetched automatically via `main/idf_component.yml`).
 
 ## Build & flash
 
@@ -22,6 +22,13 @@ Flash size is set to 4 MB via `sdkconfig.defaults`.
 NOTE: after `idf.py flash`, the LCD stays black until the board is
 manually reset (RST button). The flash auto-reset (RTS) does not
 reliably bring the ST7789 up. A normal power-cycle also works.
+
+## Demo
+
+`main/main.c` is an interactive 3-screen demo (port of the MicroPython
+`demo/demo01.py`), toggled with the BOOT button (GPIO9, active LOW):
+1. board specs, 2. "HELLO Federico!" + bouncing square, 3. WS2812 LED cycle.
+It drives the LCD via `components/st7789/` and the RGB LED via `led_strip`.
 
 ## Driver API (`components/st7789/`)
 

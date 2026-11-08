@@ -116,8 +116,9 @@ through colors; press BOOT to return to the connected screen.
 
 The `esp-idf/` directory holds a native C port of the ST7789 driver — same
 verified init sequence (MADCTL `0x00`, COLMOD `0x55`, INVON), column offset 34
-and software rotation as the MicroPython version — plus a demo app. Requires
-ESP-IDF v5.5.x, target `esp32c6`, 4 MB flash (set via `sdkconfig.defaults`).
+and software rotation as the MicroPython version — plus the interactive
+demo01. Requires ESP-IDF v6.1, target `esp32c6`, 4 MB flash (set via
+`sdkconfig.defaults`).
 
 See [`esp-idf/README.md`](esp-idf/README.md) for the API and build/flash
 instructions (note: after `idf.py flash` the LCD needs a manual reset).
