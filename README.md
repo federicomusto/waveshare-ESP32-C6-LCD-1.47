@@ -16,7 +16,7 @@ development board (1.47" 172×320 ST7789 IPS LCD).
 ## Files
 
 - `st7789.py` — minimal ST7789 driver (software rotation), verified on hardware.
-- `main.py` — interactive demo: 3 screens toggled with the **BOOT** button.
+- `demo/demo01.py` — interactive demo: 3 screens toggled with the **BOOT** button.
   1. board specs (chip, CPU, RAM/ROM/flash, radio, MicroPython version)
   2. "HELLO" + bouncing ball (random path each loop)
   3. RGB LED color cycle
@@ -52,7 +52,7 @@ development board (1.47" 172×320 ST7789 IPS LCD).
 
    ```
    mpremote connect /dev/ttyACM0 cp st7789.py :st7789.py
-   mpremote connect /dev/ttyACM0 cp main.py :main.py
+   mpremote connect /dev/ttyACM0 cp demo/demo01.py :main.py
    mpremote connect /dev/ttyACM0 reset
    ```
 
