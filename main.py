@@ -14,9 +14,10 @@ RGB LED states:
 
 Screensaver:
   After 60 s without a BOOT press the "connected" screen is replaced by a
-  black screen showing only the board IP (top) and a drifting clock (date +
-  time, which moves every 3 s) while the RGB LED cycles through colors.
-  Pressing BOOT returns to the connected screen and restarts the 60 s timer.
+  black screen showing only the board IP and a drifting clock (date + time
+  with its UTC offset); both texts drift independently every 3 s while the
+  RGB LED cycles through colors. Pressing BOOT returns to the connected
+  screen and restarts the 60 s timer.
 
 Everything is single-threaded: the shell (shell.py) accepts an optional
 `tick` callback that it invokes ~5x/s while waiting for connections/input,
@@ -165,15 +166,27 @@ sa_last_press = time.ticks_ms()   # last BOOT press (resets the idle timer)
 sa_last_move = 0           # when the clock last moved
 sa_last_color = 0          # when the LED color last changed
 sa_color_idx = 0           # index into SA_COLORS
+ip_x, ip_y = 8, 10         # IP text position (drifts)
+ip_dx, ip_dy = 1, 1        # IP drift direction (+/-1)
 sa_x, sa_y = 8, 44         # clock text position (drifts)
-sa_dx, sa_dy = 1, 1        # clock drift direction (+/-1)
+sa_dx, sa_dy = -1, 1       # clock drift direction (+/-1)
+
+
+def tz_suffix():
+    """Return a 'UTC' / 'UTC+N' / 'UTC-N' suffix for the timezone offset."""
+    if TIMEZONE_OFFSET_H == 0:
+        return "UTC"
+    sign = "+" if TIMEZONE_OFFSET_H > 0 else "-"
+    return "UTC%s%d" % (sign, abs(TIMEZONE_OFFSET_H))
 
 
 def local_time_str():
-    """Return the current local date/time as 'YYYY-MM-DD HH:MM:SS'."""
+    """Return the current local date/time with its UTC offset, e.g.
+    '2026-11-08 18:13:29 UTC+1'."""
     t = time.time() + TIMEZONE_OFFSET_H * 3600
     y, mo, d, h, mi, s = time.localtime(t)[:6]
-    return "%04d-%02d-%02d %02d:%02d:%02d" % (y, mo, d, h, mi, s)
+    return "%04d-%02d-%02d %02d:%02d:%02d %s" % (y, mo, d, h, mi, s,
+                                                 tz_suffix())
 
 
 def sync_time():
@@ -193,21 +206,26 @@ def draw_connected(ip, ssid=""):
 
 
 def draw_screensaver(ip):
-    """Draw one screensaver frame: black background, IP on top, drifting clock."""
+    """Draw one screensaver frame: black background + two drifting texts.
+
+    The IP (white) and the clock (cyan) drift independently; sa_tick() updates
+    their positions every 3 s.
+    """
     lcd.fill(BLACK)
-    lcd.text("IP: " + ip, 6, 6, WHITE, 1)            # fixed first line
-    lcd.text(local_time_str(), sa_x, sa_y, CYAN, 1)  # drifting second line
+    lcd.text("IP: " + ip, ip_x, ip_y, WHITE, 1)
+    lcd.text(local_time_str(), sa_x, sa_y, CYAN, 1)
 
 
 def sa_tick():
     """One non-blocking screensaver step (called ~5x/s by the shell).
 
-    Manages the 60-second idle countdown and, once in screensaver mode, moves
-    the clock every 3 s and cycles the RGB color every 1.5 s. A BOOT press
-    exits the screensaver (back to the connected screen) and resets the timer.
+    Manages the 60-second idle countdown and, once in screensaver mode, drifts
+    the IP and clock texts every 3 s and cycles the RGB color every 1.5 s.
+    A BOOT press exits the screensaver (back to the connected screen) and
+    resets the timer.
     """
     global sa_on, sa_last_press, sa_last_move, sa_last_color, sa_color_idx
-    global sa_x, sa_y, sa_dx, sa_dy
+    global ip_x, ip_y, ip_dx, ip_dy, sa_x, sa_y, sa_dx, sa_dy
     now = time.ticks_ms()
 
     # BOOT press (debounced): exit screensaver + reset the idle timer.
@@ -227,20 +245,32 @@ def sa_tick():
         sa_last_move = now
         sa_last_color = now
         sa_color_idx = 0
+        ip_x, ip_y = 8, 10
+        ip_dx, ip_dy = 1, 1
         sa_x, sa_y = 8, 44
-        sa_dx, sa_dy = 1, 1
+        sa_dx, sa_dy = -1, 1
         draw_screensaver(sa_ip)
 
     if sa_on:
-        # Move the clock every 3 s, bouncing off the screen edges.
+        # Move both texts every 3 s, bouncing off the screen edges.
         if time.ticks_diff(now, sa_last_move) >= SA_MOVE_MS:
             sa_last_move = now
+            # IP text: "IP: a.b.c.d" is ~18 chars (~144 px wide)
+            ip_x += ip_dx * 12
+            ip_y += ip_dy * 12
+            if ip_x <= 0 or ip_x > W - 150:
+                ip_dx = -ip_dx
+                ip_x += ip_dx * 12
+            if ip_y <= 0 or ip_y > H - 12:
+                ip_dy = -ip_dy
+                ip_y += ip_dy * 12
+            # Clock text: ~24 chars with the UTC suffix (~192 px wide)
             sa_x += sa_dx * 12
             sa_y += sa_dy * 12
-            if sa_x <= 0 or sa_x > W - 160:   # clock text is ~152 px wide
+            if sa_x <= 0 or sa_x > W - 200:
                 sa_dx = -sa_dx
                 sa_x += sa_dx * 12
-            if sa_y <= 24 or sa_y > H - 12:
+            if sa_y <= 0 or sa_y > H - 12:
                 sa_dy = -sa_dy
                 sa_y += sa_dy * 12
             draw_screensaver(sa_ip)
