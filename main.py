@@ -146,6 +146,7 @@ TIMEZONE_OFFSET_H = 1      # CET (UTC+1); change for your region
 SA_IDLE_MS = 60000         # idle time before the screensaver kicks in
 SA_MOVE_MS = 3000          # the clock text moves every 3 s
 SA_COLOR_MS = 1500         # RGB color cycle period
+SA_COUNT_Y = 92            # y of the countdown line (below the 4 static lines)
 
 # Distinct RGB colors for the screensaver (GRB byte order, see README).
 SA_COLORS = [
@@ -199,17 +200,21 @@ def sync_time():
         return False
 
 
-def draw_connected(ip, ssid="", remaining=None):
-    """Draw the 'connected' screen and light the LED solid white.
+def draw_connected(ip, ssid=""):
+    """Draw the static 'connected' screen (title + lines) and light the LED.
 
-    When `remaining` is given, a "Screensaver in Ns" countdown line is shown.
+    The countdown is NOT drawn here; draw_countdown() updates it separately so
+    only that one line is refreshed each second instead of the whole screen.
     """
     set_white(255)
-    lines = ["Connected", ssid, "IP: " + ip,
-             "Shell: %s:%d" % (ip, shell.SHELL_PORT)]
-    if remaining is not None:
-        lines.append("Screensaver in %ds" % remaining)
-    show(lines, GREEN)
+    show(["Connected", ssid, "IP: " + ip,
+          "Shell: %s:%d" % (ip, shell.SHELL_PORT)], GREEN)
+
+
+def draw_countdown(remaining):
+    """Update only the countdown line (clear the old text, draw the new)."""
+    lcd.fill_rect(6, SA_COUNT_Y, 200, 8, BLACK)   # clear the previous value
+    lcd.text("Screensaver in %ds" % remaining, 6, SA_COUNT_Y, GREEN, 1)
 
 
 def draw_screensaver(ip):
@@ -243,12 +248,13 @@ def sa_tick():
             sa_last_count = SA_IDLE_MS // 1000
             if sa_on:
                 sa_on = False
-            draw_connected(sa_ip, sa_ssid, SA_IDLE_MS // 1000)
+            draw_connected(sa_ip, sa_ssid)         # static screen
+            draw_countdown(SA_IDLE_MS // 1000)     # initial countdown
             while btn.value() == 0:      # wait for the button to be released
                 time.sleep_ms(20)
 
     if not sa_on:
-        # Connected screen: show the countdown, redrawn once per second.
+        # Connected screen: refresh only the countdown line, once per second.
         remaining_ms = SA_IDLE_MS - time.ticks_diff(now, sa_last_press)
         count = (remaining_ms + 999) // 1000   # ceiling -> whole seconds
         if count < 0:
@@ -267,7 +273,7 @@ def sa_tick():
                 sa_dx, sa_dy = -1, 1
                 draw_screensaver(sa_ip)
             else:
-                draw_connected(sa_ip, sa_ssid, count)
+                draw_countdown(count)          # only the seconds line
         return
 
     # sa_on: the screensaver is showing.
@@ -313,7 +319,8 @@ def enter_connected(ip, ssid=""):
     sa_last_press = time.ticks_ms()   # start the 60 s idle window
     sa_last_count = SA_IDLE_MS // 1000
     sync_time()
-    draw_connected(ip, ssid, SA_IDLE_MS // 1000)
+    draw_connected(ip, ssid)              # static screen
+    draw_countdown(SA_IDLE_MS // 1000)    # initial countdown
     shell.run_shell(tick=sa_tick)     # blocks forever
 
 
