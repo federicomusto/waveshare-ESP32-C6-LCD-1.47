@@ -72,4 +72,4 @@ development board (1.47" 172×320 ST7789 IPS LCD).
 
 ## License
 
-MIT
+GPL-3.0
