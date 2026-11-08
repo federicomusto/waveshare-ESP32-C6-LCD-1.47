@@ -27,17 +27,25 @@ SHELL_PORT = 23        # standard telnet port
 _boot_ms = time.ticks_ms()
 
 
-def _read_line(conn):
+def _read_line(conn, tick=None):
     """Read one line from the socket, byte by byte, until a newline.
 
     Returns the decoded string (without the trailing CR/LF), or None if the
     client closed the connection. Reading a single byte at a time is simple
     and fast enough for an interactive shell (commands are short).
+
+    If the socket times out (no data yet), `tick()` is called, so the caller
+    can keep a background task (e.g. a screensaver) alive while waiting.
     """
     line = b""
     while True:
         try:
             c = conn.recv(1)
+        except OSError:
+            # recv() timed out -> run the periodic callback and try again.
+            if tick:
+                tick()
+            continue
         except Exception:
             return None
         if not c:
@@ -67,6 +75,7 @@ def _cmd_help():
         "  uname                system info\r\n"
         "  version              MicroPython version\r\n"
         "  uptime               time since boot\r\n"
+        "  time                 current date/time (UTC)\r\n"
         "  status               quick summary\r\n"
         "  check                self-check (mem/wifi/i2c/spi)\r\n"
         "  exit                 close connection"
@@ -246,6 +255,12 @@ def _cmd_uptime():
     return "uptime: %dh %dm %ds" % (h, m, s)
 
 
+def _cmd_time():
+    """Current wall-clock time from the RTC (UTC after NTP sync)."""
+    y, mo, d, h, mi, s = time.localtime()[:6]
+    return "%04d-%02d-%02d %02d:%02d:%02d (UTC)" % (y, mo, d, h, mi, s)
+
+
 def _cmd_status():
     """Quick one-glance summary: WiFi, heap, flash, uptime."""
     import network
@@ -307,6 +322,8 @@ def _execute(line):
         return _cmd_version()
     if name == "uptime":
         return _cmd_uptime()
+    if name == "time":
+        return _cmd_time()
     if name == "status":
         return _cmd_status()
     if name == "check":
@@ -314,20 +331,23 @@ def _execute(line):
     return "unknown command: %s (try 'help')" % name
 
 
-def _serve_client(conn, addr):
+def _serve_client(conn, addr, tick=None):
     """Run the interactive prompt loop for one connected client.
 
     Prints a banner (including the client's source IP), then loops reading
     lines, executing them, and sending back the result, until the client
-    types `exit` or drops the connection.
+    types `exit` or drops the connection. `tick()` is called while waiting
+    for input (see _read_line).
     """
     try:
         client_ip = addr[0] if addr else "unknown"
+        if tick:
+            conn.settimeout(0.2)   # let tick() run while waiting for input
         conn.send(b"\r\nESP32-C6 shell - type 'help'\r\n")
         conn.send(("client: %s\r\n" % client_ip).encode())
         while True:
             conn.send(b"> ")
-            line = _read_line(conn)
+            line = _read_line(conn, tick)
             if line is None:
                 break
             line = line.strip()
@@ -345,21 +365,28 @@ def _serve_client(conn, addr):
     conn.close()
 
 
-def run_shell(port=SHELL_PORT):
+def run_shell(port=SHELL_PORT, tick=None):
     """Start the shell server: bind, listen, and accept clients forever.
 
     This blocks; call it as the last step of main.py once WiFi is connected.
+    If `tick` is given it is called ~5x/s while waiting for a connection, so
+    the caller can run a background task (e.g. a screensaver) without threads.
     """
     s = socket.socket()
     # SO_REUSEADDR avoids "address in use" after a quick reboot.
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind(("0.0.0.0", port))   # listen on every interface (STA + AP)
     s.listen(2)
+    if tick:
+        s.settimeout(0.2)       # make accept() return periodically
     print("shell listening on port", port)
     while True:
         try:
             conn, addr = s.accept()
-        except Exception:
+        except OSError:
+            # accept() timed out -> run the periodic callback and retry.
+            if tick:
+                tick()
             continue
         print("shell client:", addr)
-        _serve_client(conn, addr)
+        _serve_client(conn, addr, tick)

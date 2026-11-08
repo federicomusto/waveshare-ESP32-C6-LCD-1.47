@@ -56,10 +56,13 @@ telnet <ip>    # or  nc <ip> 23
 
 Commands: `help`, `mem`, `cpu`, `wifi`, `gpio <pin>`, `spi`,
 `i2c scan [sda] [scl]`, `freq`, `flash`, `uname`, `version`, `uptime`,
-`status`, `check`, `exit`.
+`time`, `status`, `check`, `exit`.
 
 RGB LED states: white blink = AP mode, solid white = connected,
 solid red = connection failed (auto-returns to AP after 5 s).
+After 60 s idle a screensaver kicks in: black screen with the board IP and a
+drifting clock (date + time, moves every 3 s) while the RGB LED cycles
+through colors; press BOOT to return to the connected screen.
 
 ## Setup
 

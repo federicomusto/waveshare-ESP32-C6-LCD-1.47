@@ -11,9 +11,20 @@ RGB LED states:
   * slow white blink  = AP / configuring
   * solid white       = connected
   * solid red         = connection failed (auto-returns to AP after 5 s)
+
+Screensaver:
+  After 60 s without a BOOT press the "connected" screen is replaced by a
+  black screen showing only the board IP (top) and a drifting clock (date +
+  time, which moves every 3 s) while the RGB LED cycles through colors.
+  Pressing BOOT returns to the connected screen and restarts the 60 s timer.
+
+Everything is single-threaded: the shell (shell.py) accepts an optional
+`tick` callback that it invokes ~5x/s while waiting for connections/input,
+and that callback drives the screensaver. No _thread needed.
 """
 from machine import Pin, SPI
 import time
+import ntptime
 import neopixel
 from st7789 import ST7789
 import wifi_manager
@@ -51,7 +62,7 @@ def set_red():
     np.write()
 
 
-# --- LED / state machine ----------------------------------------------------
+# --- LED / state machine (boot and config phases) ---------------------------
 # state is one of: "ap" (blinking), "connected" (solid white),
 # "failed" (solid red, with a 5-second countdown back to AP).
 state = "ap"
@@ -80,9 +91,9 @@ def show_ap():
 
 
 def led_tick():
-    """Periodic callback: animate the LED and handle the failure countdown.
+    """Periodic callback for the boot/config phases (LED + failure countdown).
 
-    Called from the BOOT window loop, from try_connect(), and from the web
+    Called from the BOOT-window loop, from try_connect(), and from the web
     server's accept loop. Only touches the LED when state == "ap" (blink);
     when "failed" it draws the 5-4-3-2-1 countdown and returns to AP.
     """
@@ -129,20 +140,144 @@ print("force_ap:", force_ap)
 sta = wifi_manager.start_sta()
 config = None if force_ap else wifi_manager.load_config()
 
+# --- Time & screensaver (used after a connection is established) ------------
+TIMEZONE_OFFSET_H = 1      # CET (UTC+1); change for your region
+SA_IDLE_MS = 60000         # idle time before the screensaver kicks in
+SA_MOVE_MS = 3000          # the clock text moves every 3 s
+SA_COLOR_MS = 1500         # RGB color cycle period
+
+# Distinct RGB colors for the screensaver (GRB byte order, see README).
+SA_COLORS = [
+    (0, 255, 0),      # red
+    (255, 0, 0),      # green
+    (0, 0, 255),      # blue
+    (255, 255, 0),    # yellow
+    (255, 0, 255),    # cyan
+    (0, 255, 255),    # magenta
+    (255, 255, 255),  # white
+]
+
+# Screensaver state. All of these are only touched by sa_tick() (single thread).
+sa_ip = ""                 # board IP, shown on both screens
+sa_ssid = ""               # connected SSID (shown only on the connected screen)
+sa_on = False              # True while the screensaver is showing
+sa_last_press = time.ticks_ms()   # last BOOT press (resets the idle timer)
+sa_last_move = 0           # when the clock last moved
+sa_last_color = 0          # when the LED color last changed
+sa_color_idx = 0           # index into SA_COLORS
+sa_x, sa_y = 8, 44         # clock text position (drifts)
+sa_dx, sa_dy = 1, 1        # clock drift direction (+/-1)
+
+
+def local_time_str():
+    """Return the current local date/time as 'YYYY-MM-DD HH:MM:SS'."""
+    t = time.time() + TIMEZONE_OFFSET_H * 3600
+    y, mo, d, h, mi, s = time.localtime(t)[:6]
+    return "%04d-%02d-%02d %02d:%02d:%02d" % (y, mo, d, h, mi, s)
+
+
+def sync_time():
+    """Sync the RTC from an NTP server (best effort; needs internet)."""
+    try:
+        ntptime.settime()
+        return True
+    except Exception:
+        return False
+
+
+def draw_connected(ip, ssid=""):
+    """Draw the normal 'connected' screen and light the LED solid white."""
+    set_white(255)
+    show(["Connected", ssid, "IP: " + ip,
+          "Shell: %s:%d" % (ip, shell.SHELL_PORT)], GREEN)
+
+
+def draw_screensaver(ip):
+    """Draw one screensaver frame: black background, IP on top, drifting clock."""
+    lcd.fill(BLACK)
+    lcd.text("IP: " + ip, 6, 6, WHITE, 1)            # fixed first line
+    lcd.text(local_time_str(), sa_x, sa_y, CYAN, 1)  # drifting second line
+
+
+def sa_tick():
+    """One non-blocking screensaver step (called ~5x/s by the shell).
+
+    Manages the 60-second idle countdown and, once in screensaver mode, moves
+    the clock every 3 s and cycles the RGB color every 1.5 s. A BOOT press
+    exits the screensaver (back to the connected screen) and resets the timer.
+    """
+    global sa_on, sa_last_press, sa_last_move, sa_last_color, sa_color_idx
+    global sa_x, sa_y, sa_dx, sa_dy
+    now = time.ticks_ms()
+
+    # BOOT press (debounced): exit screensaver + reset the idle timer.
+    if btn.value() == 0:
+        time.sleep_ms(30)
+        if btn.value() == 0:
+            sa_last_press = now
+            if sa_on:
+                sa_on = False
+                draw_connected(sa_ip, sa_ssid)
+            while btn.value() == 0:      # wait for the button to be released
+                time.sleep_ms(20)
+
+    # Enter the screensaver after the idle timeout.
+    if not sa_on and time.ticks_diff(now, sa_last_press) >= SA_IDLE_MS:
+        sa_on = True
+        sa_last_move = now
+        sa_last_color = now
+        sa_color_idx = 0
+        sa_x, sa_y = 8, 44
+        sa_dx, sa_dy = 1, 1
+        draw_screensaver(sa_ip)
+
+    if sa_on:
+        # Move the clock every 3 s, bouncing off the screen edges.
+        if time.ticks_diff(now, sa_last_move) >= SA_MOVE_MS:
+            sa_last_move = now
+            sa_x += sa_dx * 12
+            sa_y += sa_dy * 12
+            if sa_x <= 0 or sa_x > W - 160:   # clock text is ~152 px wide
+                sa_dx = -sa_dx
+                sa_x += sa_dx * 12
+            if sa_y <= 24 or sa_y > H - 12:
+                sa_dy = -sa_dy
+                sa_y += sa_dy * 12
+            draw_screensaver(sa_ip)
+        # Cycle the RGB color.
+        if time.ticks_diff(now, sa_last_color) >= SA_COLOR_MS:
+            sa_last_color = now
+            sa_color_idx = (sa_color_idx + 1) % len(SA_COLORS)
+            np[0] = SA_COLORS[sa_color_idx]
+            np.write()
+
+
+def enter_connected(ip, ssid=""):
+    """Sync time, show the connected screen, then run the shell forever.
+
+    The shell drives the screensaver via sa_tick(), so this call never
+    returns. Must be called only after a successful connection.
+    """
+    global sa_ip, sa_ssid, sa_last_press
+    sa_ip = ip
+    sa_ssid = ssid
+    sa_last_press = time.ticks_ms()   # start the 60 s idle window
+    sync_time()
+    draw_connected(ip, ssid)
+    shell.run_shell(tick=sa_tick)     # blocks forever
+
+
+# --- Connection: saved network ---------------------------------------------
 if config and config.get("ssid"):
     # A network is saved: try to auto-connect on boot.
     show(["Connecting...", config["ssid"]])
     print("trying saved ssid:", config["ssid"])
     if wifi_manager.try_connect(sta, config["ssid"], config["password"],
                                 tick=led_tick):
-        state = "connected"
-        set_white(255)
         ip = sta.ifconfig()[0]
         net_ok = wifi_manager.check_internet()
-        show(["Connected", config["ssid"], "IP: " + ip,
-              "Shell: %s:%d" % (ip, shell.SHELL_PORT)], GREEN)
         print("connected:", ip, "internet:", net_ok)
-        shell.run_shell()   # blocks forever (remote shell)
+        enter_connected(ip, config["ssid"])   # never returns
     else:
         show(["Connect failed", "Starting AP..."])
         print("saved connect failed, AP mode")
@@ -186,7 +321,5 @@ wifi_manager.serve(sta, on_connect, tick=led_tick, on_start=on_start)
 
 # Connected through the portal: stop serving and start the remote shell.
 sta_ip = sta.ifconfig()[0]
-show(["Connected", "IP: " + sta_ip,
-      "Shell: %s:%d" % (sta_ip, shell.SHELL_PORT)], GREEN)
 print("connected via web:", sta_ip)
-shell.run_shell()
+enter_connected(sta_ip)   # never returns
