@@ -31,13 +31,14 @@ jobs:
 
       - name: Compile all .py files to .mpy
         run: |
+          MPY_CROSS=/tmp/micropython/mpy-cross/build/mpy-cross
           mkdir -p build
           find . -name '*.py' -not -path './.git/*' | while read -r f; do
             out="build/${f#./}"
             out="${out%.py}.mpy"
             mkdir -p "$(dirname "$out")"
             echo "Compiling $f -> $out"
-            /tmp/micropython/mpy-cross/mpy-cross -o "$out" "$f"
+            "$MPY_CROSS" -o "$out" "$f"
           done
           echo '--- build output ---'
           find build -type f | sort
