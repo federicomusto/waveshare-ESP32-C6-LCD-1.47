@@ -19,6 +19,7 @@ extern "C" {
 
 /* Board pins (non-touch Waveshare ESP32-C6-LCD-1.47) */
 #define ST7789_PIN_MOSI  6
+#define ST7789_PIN_MISO  5    /* TF card MISO (shared SPI bus; LCD itself has none) */
 #define ST7789_PIN_SCLK  7
 #define ST7789_PIN_CS    14
 #define ST7789_PIN_DC    15

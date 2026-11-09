@@ -17,6 +17,8 @@
 #include <ctype.h>
 #include <errno.h>
 #include <time.h>
+#include <dirent.h>
+#include <sys/stat.h>
 #include "sdkconfig.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -34,6 +36,7 @@
 #include "shell.h"
 #include "ble_scan.h"
 #include "version.h"
+#include "sd_card.h"
 
 /* Provided by main.c — control the onboard WS2812 RGB LED. */
 extern void led_set_on(void);
@@ -237,6 +240,7 @@ static void cmd_help_impl(sb_t *sb)
     sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "wifi scan", "list visible WiFi networks");
     sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "bt", "BLE scan");
     sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "led <mode>", "RGB LED: on/off/color/blink");
+    sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "sd [ls|cat|rm]", "SD card status / files");
     sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "gpio <pin>", "read a GPIO pin");
     sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "spi", "SPI bus + onboard devices");
     sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "i2c scan [sda] [scl]", "scan I2C bus (default 18 19)");
@@ -381,6 +385,89 @@ static void cmd_led_impl(sb_t *sb, int argc, char **argv)
         return;
     }
     sb_line(sb, "LED: %s", led_state());
+}
+
+static void cmd_sd_impl(sb_t *sb, int argc, char **argv)
+{
+    if (!sd_card_is_mounted()) {
+        sb_line(sb, C_YELLOW "SD card not mounted (insert a FAT32 card and reboot)" C_RESET);
+        return;
+    }
+
+    if (argc >= 2 && argv && argv[1]) {
+        const char *sub = argv[1];
+
+        if (!strcmp(sub, "ls")) {
+            const char *path = (argc >= 3) ? argv[2] : SD_MOUNT_POINT;
+            DIR *d = opendir(path);
+            if (!d) {
+                sb_line(sb, C_RED "opendir(%s): %s" C_RESET, path, strerror(errno));
+                return;
+            }
+            struct dirent *e;
+            int count = 0;
+            while ((e = readdir(d)) != NULL && count < 128) {
+                char full[520];
+                snprintf(full, sizeof(full), "%s/%s", path, e->d_name);
+                struct stat st;
+                if (stat(full, &st) == 0 && S_ISDIR(st.st_mode)) {
+                    sb_line(sb, "  %-24s <dir>", e->d_name);
+                } else {
+                    sb_line(sb, "  %-24s %ld", e->d_name, (long)st.st_size);
+                }
+                count++;
+            }
+            closedir(d);
+            return;
+        }
+
+        if (!strcmp(sub, "cat")) {
+            if (argc < 3) {
+                sb_line(sb, "usage: sd cat <file>");
+                return;
+            }
+            FILE *f = fopen(argv[2], "r");
+            if (!f) {
+                sb_line(sb, C_RED "fopen(%s): %s" C_RESET, argv[2], strerror(errno));
+                return;
+            }
+            char line[256];
+            int n = 0;
+            while (fgets(line, sizeof(line), f) && n < 64) {
+                char *nl = strpbrk(line, "\r\n");
+                if (nl) {
+                    *nl = '\0';
+                }
+                sb_line(sb, "%s", line);
+                n++;
+            }
+            fclose(f);
+            return;
+        }
+
+        if (!strcmp(sub, "rm")) {
+            if (argc < 3) {
+                sb_line(sb, "usage: sd rm <file>");
+                return;
+            }
+            if (remove(argv[2]) == 0) {
+                sb_line(sb, "removed %s", argv[2]);
+            } else {
+                sb_line(sb, C_RED "remove(%s): %s" C_RESET, argv[2], strerror(errno));
+            }
+            return;
+        }
+    }
+
+    /* Default: card info. */
+    uint64_t total = sd_card_total_bytes();
+    uint64_t free_b = sd_card_free_bytes();
+    sb_line(sb, "SD card at %s", SD_MOUNT_POINT);
+    sb_line(sb, "  total %llu MB, free %llu MB (%.1f%% used)",
+            (unsigned long long)(total / (1024 * 1024)),
+            (unsigned long long)(free_b / (1024 * 1024)),
+            total ? (double)(total - free_b) * 100.0 / (double)total : 0.0);
+    sb_line(sb, "  subcommands: ls [path] | cat <file> | rm <file>");
 }
 
 static void cmd_gpio_impl(sb_t *sb, int argc, char **argv)
@@ -584,6 +671,8 @@ static const char *execute(const char *line)
         cmd_bt_impl(&sb);
     } else if (!strcmp(name, "led")) {
         cmd_led_impl(&sb, argc, argv);
+    } else if (!strcmp(name, "sd")) {
+        cmd_sd_impl(&sb, argc, argv);
     } else if (!strcmp(name, "gpio")) {
         cmd_gpio_impl(&sb, argc, argv);
     } else if (!strcmp(name, "spi")) {

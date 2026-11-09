@@ -45,6 +45,7 @@
 #include "shell.h"
 #include "ble_scan.h"
 #include "version.h"
+#include "sd_card.h"
 
 static const char *TAG = "demo02";
 
@@ -476,6 +477,14 @@ void app_main(void)
     };
     ESP_ERROR_CHECK(led_strip_new_rmt_device(&strip_config, &rmt_config, &strip));
     rgb_off();
+
+    /* SD/TF card on the shared SPI bus. Optional: if no card is inserted the
+     * mount fails and we continue without it (never abort boot on this). */
+    esp_err_t sd_err = sd_card_mount();
+    if (sd_err != ESP_OK) {
+        ESP_LOGW(TAG, "SD card unavailable (%s); continuing without it",
+                 esp_err_to_name(sd_err));
+    }
 
     /* WiFi (STA mode). */
     wm_init();

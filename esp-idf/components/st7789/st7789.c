@@ -66,10 +66,11 @@ void st7789_init(st7789_ctx_t *ctx)
     };
     gpio_config(&io);
 
-    /* SPI bus: MOSI=6, SCK=7 (NOT the FSPI defaults, which are swapped). */
+    /* SPI bus: MOSI=6, MISO=5, SCK=7 (NOT the FSPI defaults, which are
+     * swapped). MISO is the TF card's read line — the LCD is write-only. */
     spi_bus_config_t bus = {
         .mosi_io_num = ST7789_PIN_MOSI,
-        .miso_io_num = -1,
+        .miso_io_num = ST7789_PIN_MISO,
         .sclk_io_num = ST7789_PIN_SCLK,
         .quadwp_io_num = -1,
         .quadhd_io_num = -1,

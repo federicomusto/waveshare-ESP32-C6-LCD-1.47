@@ -63,10 +63,10 @@ telnet <ip>    # or  nc <ip> 23
 ```
 
 Commands: `help`, `mem`, `cpu`, `wifi`, `wifi scan`, `bt` (BLE scan),
-`led <on|off|color|blink>`, `gpio <pin>`, `spi`, `i2c scan [sda] [scl]`,
-`freq`, `flash`, `uname`, `version`, `uptime`, `time`, `status`, `check`,
-`exit`. The shell has ANSI colors and up/down arrow command history (use a
-real telnet client, not `nc`, for the full experience).
+`led <on|off|color|blink>`, `sd [ls|cat|rm]` (SD card), `gpio <pin>`, `spi`,
+`i2c scan [sda] [scl]`, `freq`, `flash`, `uname`, `version`, `uptime`,
+`time`, `status`, `check`, `exit`. The shell has ANSI colors and up/down arrow
+command history (use a real telnet client, not `nc`, for the full experience).
 
 Note: on **MicroPython** v1.29.0 the `bt` BLE scan is disabled — it crashes
 (Guru Meditation in NimBLE) on an active scan and hangs on a passive scan

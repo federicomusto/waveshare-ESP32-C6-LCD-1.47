@@ -48,7 +48,9 @@ Port of the MicroPython `demo/demo02/` (main.py + wifi_manager.py + shell.py):
   config page on port 80, unique DHCP hostname.
 - `main/shell.c` — TCP command shell on port 23 (ANSI colors + history).
 - `main/ble_scan.c` — NimBLE GAP scan behind the `bt` command.
-- `main/version.h` — firmware version (currently 0.1.2).
+- `main/version.h` — firmware version (currently 0.1.3).
+- `components/sd_card/` — SD/TF card over SPI on the shared LCD bus (mounted
+  at `/sdcard`); powers the `sd` shell command.
 
 On first boot (no saved network) the board opens the hotspot
 `ESP32-C6-Config` on `192.168.4.1`; connect a phone and open
@@ -59,8 +61,8 @@ force the portal.
 Once connected, `telnet <ip>` (port 23) gives a command shell with ANSI
 colors and up/down arrow command history:
 `help`, `mem`, `cpu`, `wifi`, `wifi scan`, `bt`, `led <on|off|color|blink>`,
-`gpio <pin>`, `spi`, `i2c scan [sda] [scl]`, `freq`, `flash`, `uname`,
-`version`, `uptime`, `time`, `status`, `check`, `exit`.
+`sd [ls|cat|rm]`, `gpio <pin>`, `spi`, `i2c scan [sda] [scl]`, `freq`,
+`flash`, `uname`, `version`, `uptime`, `time`, `status`, `check`, `exit`.
 
 Unlike the MicroPython build (where BLE scanning crashes/hangs while WiFi is
 active), the native ESP-IDF stack scans BLE fine alongside WiFi: `bt` performs
