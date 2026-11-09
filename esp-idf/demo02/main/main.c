@@ -248,15 +248,15 @@ static void draw_countdown(int remaining)
 
 static void draw_screensaver(const char *ip)
 {
-    /* Black background + two drifting texts + a static version tag. */
-    char b[48], t[48], v[16];
+    /* Black background + two drifting texts. The clock carries the version,
+     * so the version drifts together with the date/time. */
+    char b[48], t[48], tv[64];
     st7789_fill(&lcd, BLACK);
     snprintf(b, sizeof(b), "IP: %s", ip);
     st7789_text(&lcd, b, ip_x, ip_y, WHITE, 1);
     local_time_str(t, sizeof(t));
-    st7789_text(&lcd, t, sa_x, sa_y, CYAN, 1);
-    snprintf(v, sizeof(v), "v%s", APP_VERSION);
-    st7789_text(&lcd, v, W - 40, H - 12, GREEN, 1);
+    snprintf(tv, sizeof(tv), "%s v%s", t, APP_VERSION);
+    st7789_text(&lcd, tv, sa_x, sa_y, CYAN, 1);
 }
 
 /* One non-blocking screensaver step (called ~5x/s by the shell). */
@@ -314,7 +314,7 @@ static void sa_tick(void)
         ip_y += ip_dy * 12;
         if (ip_x <= 0 || ip_x > W - 150) { ip_dx = -ip_dx; ip_x += ip_dx * 12; }
         if (ip_y <= 0 || ip_y > H - 12)  { ip_dy = -ip_dy; ip_y += ip_dy * 12; }
-        /* Clock text: ~24 chars with the UTC suffix (~192 px wide) */
+        /* Clock text: date + time + version (~32 chars, ~192 px wide) */
         sa_x += sa_dx * 12;
         sa_y += sa_dy * 12;
         if (sa_x <= 0 || sa_x > W - 200) { sa_dx = -sa_dx; sa_x += sa_dx * 12; }
