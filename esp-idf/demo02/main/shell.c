@@ -35,6 +35,10 @@
 #include "ble_scan.h"
 #include "version.h"
 
+/* Provided by main.c — master switch for the onboard WS2812 RGB LED. */
+extern void led_set_enabled(bool on);
+extern bool led_get_enabled(void);
+
 static const char *TAG = "shell";
 
 #define SHELL_MAX_APS   32
@@ -228,6 +232,7 @@ static void cmd_help_impl(sb_t *sb)
     sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "wifi", "WiFi status");
     sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "wifi scan", "list visible WiFi networks");
     sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "bt", "BLE scan");
+    sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "led on|off", "control the RGB LED");
     sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "gpio <pin>", "read a GPIO pin");
     sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "spi", "SPI bus + onboard devices");
     sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "i2c scan [sda] [scl]", "scan I2C bus (default 18 19)");
@@ -351,6 +356,23 @@ static void cmd_bt_impl(sb_t *sb)
                 devs[i].addr[2], devs[i].addr[1], devs[i].addr[0],
                 devs[i].rssi);
     }
+}
+
+static void cmd_led_impl(sb_t *sb, int argc, char **argv)
+{
+    if (argc >= 2) {
+        if (!strcmp(argv[1], "on")) {
+            led_set_enabled(true);
+            sb_line(sb, "LED on");
+            return;
+        }
+        if (!strcmp(argv[1], "off")) {
+            led_set_enabled(false);
+            sb_line(sb, "LED off");
+            return;
+        }
+    }
+    sb_line(sb, "LED: %s", led_get_enabled() ? "on" : "off");
 }
 
 static void cmd_gpio_impl(sb_t *sb, int argc, char **argv)
@@ -552,6 +574,8 @@ static const char *execute(const char *line)
         cmd_wifi_impl(&sb, argc, argv);
     } else if (!strcmp(name, "bt") || !strcmp(name, "ble")) {
         cmd_bt_impl(&sb);
+    } else if (!strcmp(name, "led")) {
+        cmd_led_impl(&sb, argc, argv);
     } else if (!strcmp(name, "gpio")) {
         cmd_gpio_impl(&sb, argc, argv);
     } else if (!strcmp(name, "spi")) {

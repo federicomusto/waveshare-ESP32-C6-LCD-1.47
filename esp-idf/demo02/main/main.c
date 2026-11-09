@@ -20,8 +20,8 @@
  *   the screen is replaced by a black screensaver. It shows the board IP with
  *   its MAC on the line below (drifting together as one block) and a clock
  *   (date + time + UTC offset + firmware version) that drifts on its own;
- *   both move every 3 s and bounce off the screen edges while the RGB LED
- *   cycles through colors. Pressing BOOT returns to the connected screen and
+ *   both move every 3 s and bounce off the screen edges; the RGB LED is off
+ *   during the screensaver. Pressing BOOT returns to the connected screen and
  *   restarts the 60 s timer.
  *
  * Everything is single-threaded: the shell (shell.c) accepts a `tick`
@@ -64,7 +64,6 @@ static const char *TAG = "demo02";
 #define TIMEZONE_OFFSET_H   1      /* CET (UTC+1); change for your region */
 #define SA_IDLE_MS          60000  /* idle time before the screensaver kicks in */
 #define SA_MOVE_MS          3000   /* the clock text moves every 3 s */
-#define SA_COLOR_MS         1500   /* RGB color cycle period */
 #define SA_COUNT_Y          107    /* y of the countdown line */
 
 static st7789_ctx_t lcd;
@@ -83,8 +82,6 @@ static char failed_ssid[33];              /* which SSID failed (for the LCD) */
 static bool sa_on = false;                /* True while the screensaver is showing */
 static int64_t sa_last_press;             /* last BOOT press (resets the idle timer) */
 static int64_t sa_last_move;              /* when the clock last moved */
-static int64_t sa_last_color;             /* when the LED color last changed */
-static int sa_color_idx;                  /* index into SA_COLORS */
 static int sa_last_count = -1;            /* last countdown drawn (avoid redraw) */
 static int ip_x, ip_y, ip_dx, ip_dy;      /* IP text position + drift */
 static int sa_x, sa_y, sa_dx, sa_dy;      /* clock text position + drift */
@@ -92,23 +89,17 @@ static char sa_ip[16];                    /* board IP, shown on both screens */
 static char sa_mac[18];                   /* board MAC, shown under the IP */
 static char sa_ssid[33];                  /* connected SSID (connected screen) */
 
-typedef struct { uint8_t r, g, b; } rgb_t;
-/* Distinct RGB colors for the screensaver (same cycle as main.py). */
-static const rgb_t SA_COLORS[] = {
-    {255,   0,   0},   /* red     */
-    {  0, 255,   0},   /* green   */
-    {  0,   0, 255},   /* blue    */
-    {255, 255,   0},   /* yellow  */
-    {  0, 255, 255},   /* cyan    */
-    {255,   0, 255},   /* magenta */
-    {255, 255, 255},   /* white   */
-};
-#define SA_COLORS_N (sizeof(SA_COLORS) / sizeof(SA_COLORS[0]))
-
 /* --- LED helpers --- */
+/* Master switch: when false, every set_* is a no-op that clears the LED. */
+static bool led_enabled = true;
+
 static void set_rgb(uint8_t r, uint8_t g, uint8_t b)
 {
     /* WS2812 is GRB order on the wire, but led_strip reorders for us. */
+    if (!led_enabled) {
+        led_strip_clear(strip);
+        return;
+    }
     led_strip_set_pixel(strip, 0, r, g, b);
     led_strip_refresh(strip);
 }
@@ -126,6 +117,30 @@ static void set_white(uint8_t b)
 static void set_red(void)
 {
     set_rgb(255, 0, 0); /* solid red = failure indicator */
+}
+
+/* Toggle the RGB LED from the shell (`led on` / `led off`). On re-enable,
+ * restore the color that matches the current state (the screensaver stays
+ * dark; the AP blink resumes on the next led_tick). */
+void led_set_enabled(bool on)
+{
+    led_enabled = on;
+    if (!on) {
+        rgb_off();
+        return;
+    }
+    if (sa_on) {
+        rgb_off();
+    } else if (s_state == STATE_CONNECTED) {
+        set_white(255);
+    } else if (s_state == STATE_FAILED) {
+        set_red();
+    }
+}
+
+bool led_get_enabled(void)
+{
+    return led_enabled;
 }
 
 /* --- Display helpers (ported from main.py show()/show_ap()) --- */
@@ -300,11 +315,10 @@ static void sa_tick(void)
         if (count != sa_last_count) {
             sa_last_count = count;
             if (count == 0) {
-                /* Time's up: enter the screensaver. */
+                /* Time's up: enter the screensaver and switch the LED off. */
                 sa_on = true;
                 sa_last_move = now;
-                sa_last_color = now;
-                sa_color_idx = 0;
+                rgb_off();
                 ip_x = 8; ip_y = 10; ip_dx = 1;  ip_dy = 1;
                 sa_x = 8;  sa_y = 44; sa_dx = -1; sa_dy = 1;
                 draw_screensaver(sa_ip);
@@ -332,14 +346,6 @@ static void sa_tick(void)
         if (sa_x <= 0 || sa_x > W - 200) { sa_dx = -sa_dx; sa_x += sa_dx * 12; }
         if (sa_y <= 0 || sa_y > H - 12)  { sa_dy = -sa_dy; sa_y += sa_dy * 12; }
         draw_screensaver(sa_ip);
-    }
-    /* Cycle the RGB color. */
-    if ((now - sa_last_color) >= SA_COLOR_MS * 1000LL) {
-        sa_last_color = now;
-        sa_color_idx = (sa_color_idx + 1) % SA_COLORS_N;
-        set_rgb(SA_COLORS[sa_color_idx].r,
-                SA_COLORS[sa_color_idx].g,
-                SA_COLORS[sa_color_idx].b);
     }
 }
 
