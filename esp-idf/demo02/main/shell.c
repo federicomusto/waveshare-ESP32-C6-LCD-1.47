@@ -39,6 +39,25 @@ static const char *TAG = "shell";
 
 #define SHELL_MAX_APS   32
 
+/* ANSI color codes for the interactive shell (banner, prompt, errors). */
+#define C_RESET   "\033[0m"
+#define C_BOLD    "\033[1m"
+#define C_DIM     "\033[2m"
+#define C_RED     "\033[31m"
+#define C_GREEN   "\033[32m"
+#define C_YELLOW  "\033[33m"
+#define C_CYAN    "\033[36m"
+
+/* Command history (up/down arrows), shared across connections. */
+#define SHELL_HIST_MAX  20
+#define SHELL_LINE_MAX  256
+
+static char s_history[SHELL_HIST_MAX][SHELL_LINE_MAX];
+static int  s_hist_count;
+
+/* Colored prompt (" > " in bold green). */
+#define SHELL_PROMPT   C_BOLD C_GREEN "> " C_RESET
+
 /* Boot timestamp; set by main at boot for the 'uptime' command. */
 int64_t shell_boot_us = 0;
 
@@ -202,25 +221,25 @@ static int scan_aps(shell_ap_t *aps, int max)
 /* --- Command implementations (each writes into the shared builder) --- */
 static void cmd_help_impl(sb_t *sb)
 {
-    sb_line(sb, "Commands:");
-    sb_line(sb, "  help                 this list");
-    sb_line(sb, "  mem                  memory status");
-    sb_line(sb, "  cpu                  detailed CPU info");
-    sb_line(sb, "  wifi                 WiFi status");
-    sb_line(sb, "  wifi scan            list visible WiFi networks");
-    sb_line(sb, "  bt                   BLE scan");
-    sb_line(sb, "  gpio <pin>           read a GPIO pin");
-    sb_line(sb, "  spi                  SPI bus + onboard devices");
-    sb_line(sb, "  i2c scan [sda] [scl] scan I2C bus (default 18 19)");
-    sb_line(sb, "  freq                 CPU frequency");
-    sb_line(sb, "  flash                flash size");
-    sb_line(sb, "  uname                system info");
-    sb_line(sb, "  version              firmware version");
-    sb_line(sb, "  uptime               time since boot");
-    sb_line(sb, "  time                 current date/time (UTC)");
-    sb_line(sb, "  status               quick summary");
-    sb_line(sb, "  check                self-check (mem/wifi/i2c/spi)");
-    sb_line(sb, "  exit                 close connection");
+    sb_line(sb, C_BOLD "Commands:" C_RESET);
+    sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "help", "this list");
+    sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "mem", "memory status");
+    sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "cpu", "detailed CPU info");
+    sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "wifi", "WiFi status");
+    sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "wifi scan", "list visible WiFi networks");
+    sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "bt", "BLE scan");
+    sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "gpio <pin>", "read a GPIO pin");
+    sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "spi", "SPI bus + onboard devices");
+    sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "i2c scan [sda] [scl]", "scan I2C bus (default 18 19)");
+    sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "freq", "CPU frequency");
+    sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "flash", "flash size");
+    sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "uname", "system info");
+    sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "version", "firmware version");
+    sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "uptime", "time since boot");
+    sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "time", "current date/time (UTC)");
+    sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "status", "quick summary");
+    sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "check", "self-check (mem/wifi/i2c/spi)");
+    sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "exit", "close connection");
 }
 
 static void cmd_mem_impl(sb_t *sb)
@@ -556,49 +575,134 @@ static const char *execute(const char *line)
     } else if (!strcmp(name, "check")) {
         cmd_check_impl(&sb);
     } else {
-        sb_put(&sb, "unknown command: %s (try 'help')", name);
+        sb_put(&sb, C_RED "unknown command: %s (try 'help')" C_RESET, name);
     }
     return out;
 }
 
 /* --- Server --- */
-/* Read one line byte-by-byte until LF. Returns its length (0-terminated), or
- * -1 when the client closes. Every recv() timeout runs tick(), so the
- * caller's screensaver keeps animating while a client sits idle at the
- * prompt. */
-static int read_line(int c, shell_tick_fn tick, char *buf, size_t len)
+/* Append a command to the persistent history (no consecutive duplicates). */
+static void history_add(const char *cmd)
+{
+    if (!cmd[0]) {
+        return;
+    }
+    if (s_hist_count > 0 && strcmp(s_history[s_hist_count - 1], cmd) == 0) {
+        return;
+    }
+    if (s_hist_count < SHELL_HIST_MAX) {
+        strlcpy(s_history[s_hist_count++], cmd, SHELL_LINE_MAX);
+    } else {
+        /* Full: drop the oldest entry and shift the rest down. */
+        memmove(s_history, s_history + 1, (SHELL_HIST_MAX - 1) * SHELL_LINE_MAX);
+        strlcpy(s_history[SHELL_HIST_MAX - 1], cmd, SHELL_LINE_MAX);
+    }
+}
+
+/* Erase the current line and redraw prompt + input (for history navigation). */
+static void redraw(int c, const char *prompt, const char *buf, size_t n)
+{
+    static const char clear[] = "\r\033[2K";
+    send(c, clear, sizeof(clear) - 1, 0);
+    send(c, prompt, strlen(prompt), 0);
+    send(c, buf, n, 0);
+}
+
+/* Interactive line editor: server-side echo, backspace, and up/down history.
+ * Reads one line byte-by-byte; each recv() timeout runs tick() so the
+ * screensaver keeps animating while the client sits idle. Returns the length
+ * (0-terminated) or -1 on disconnect. */
+static int read_line_editor(int c, shell_tick_fn tick, const char *prompt,
+                            char *buf, size_t len)
 {
     size_t n = 0;
+    int hist_pos = s_hist_count;              /* navigation cursor */
+    char saved[SHELL_LINE_MAX] = {0};         /* in-progress line while browsing */
+
+    send(c, prompt, strlen(prompt), 0);
+
     while (1) {
         char ch;
         int r = recv(c, &ch, 1, 0);
         if (r == 0) {
-            return -1;                       /* peer closed the connection */
+            return -1;                        /* peer closed the connection */
         }
         if (r < 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 if (tick) {
-                    tick();                  /* timed out -> run the callback */
+                    tick();                   /* timed out -> run the callback */
                 }
                 continue;
             }
             return -1;
         }
-        if (ch == '\n') {
+
+        if (ch == '\r' || ch == '\n') {
+            send(c, "\r\n", 2, 0);
             buf[n] = '\0';
             return (int)n;
         }
-        if (ch == '\r') {
-            continue;                        /* telnet sends CRLF; keep only LF */
+        if (ch == 0x08 || ch == 0x7F) {       /* backspace / DEL */
+            if (n > 0) {
+                n--;
+                buf[n] = '\0';
+                send(c, "\b \b", 3, 0);
+            }
+            continue;
         }
-        if (n + 1 < len) {
-            buf[n++] = ch;
+        if (ch == 0xFF) {                     /* telnet IAC: skip its 3 bytes */
+            char skip[2];
+            recv(c, &skip[0], 1, 0);
+            recv(c, &skip[1], 1, 0);
+            continue;
         }
+        if (ch == 0x1B) {                     /* ESC: arrow-key sequence */
+            char b1 = 0, b2 = 0;
+            if (recv(c, &b1, 1, 0) != 1 || recv(c, &b2, 1, 0) != 1) {
+                continue;                     /* lone ESC or short sequence */
+            }
+            if (b1 != '[') {
+                continue;
+            }
+            if (b2 == 'A') {                  /* up: recall an older command */
+                if (hist_pos > 0) {
+                    if (hist_pos == s_hist_count) {
+                        strlcpy(saved, buf, sizeof(saved));   /* stash current */
+                    }
+                    hist_pos--;
+                    strlcpy(buf, s_history[hist_pos], len);
+                    n = strlen(buf);
+                    redraw(c, prompt, buf, n);
+                }
+            } else if (b2 == 'B') {           /* down: recall a newer command */
+                if (hist_pos < s_hist_count) {
+                    hist_pos++;
+                    if (hist_pos == s_hist_count) {
+                        strlcpy(buf, saved, len);             /* restore current */
+                    } else {
+                        strlcpy(buf, s_history[hist_pos], len);
+                    }
+                    n = strlen(buf);
+                    redraw(c, prompt, buf, n);
+                }
+            }
+            /* left/right (C/D) are ignored for now */
+            continue;
+        }
+        if (ch >= 32 && ch < 127) {           /* printable: store + echo */
+            if (n + 1 < len) {
+                buf[n++] = ch;
+                buf[n] = '\0';
+                send(c, &ch, 1, 0);
+            }
+            continue;
+        }
+        /* other control chars: ignore */
     }
 }
 
-/* Run the prompt loop for one connected client: print the banner (with the
- * client's source IP), then read / execute / respond until 'exit' or a drop. */
+/* Run the prompt loop for one connected client: negotiate telnet echo, print a
+ * colored banner, then read / execute / respond with history + colors. */
 static void serve_client(int c, struct sockaddr_in *addr, shell_tick_fn tick)
 {
     char ip[16];
@@ -609,18 +713,24 @@ static void serve_client(int c, struct sockaddr_in *addr, shell_tick_fn tick)
         setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     }
 
-    char banner[64];
+    /* Minimal telnet negotiation: offer to echo (IAC WILL ECHO) and request
+     * character-at-a-time mode (IAC WILL SUPPRESS-GO-AHEAD), so a telnet
+     * client disables its local echo and sends each keypress immediately. */
+    static const char iac[] = "\xff\xfb\x01\xff\xfb\x03";
+    send(c, iac, sizeof(iac) - 1, 0);
+
+    char banner[96];
     int bn = snprintf(banner, sizeof(banner),
-                      "\r\nESP32-C6 shell v%s - type 'help'\r\n", APP_VERSION);
+                      "\r\n" C_BOLD C_CYAN "ESP32-C6 shell v" APP_VERSION
+                      C_RESET " - type 'help'\r\n");
     send(c, banner, bn, 0);
-    char cl[64];
-    int cn = snprintf(cl, sizeof(cl), "client: %s\r\n", ip);
+    char cl[96];
+    int cn = snprintf(cl, sizeof(cl), C_DIM "client: %s" C_RESET "\r\n", ip);
     send(c, cl, cn, 0);
 
-    char line[256];
+    char line[SHELL_LINE_MAX];
     while (1) {
-        send(c, "> ", 2, 0);
-        int r = read_line(c, tick, line, sizeof(line));
+        int r = read_line_editor(c, tick, SHELL_PROMPT, line, sizeof(line));
         if (r < 0) {
             break;
         }
@@ -635,8 +745,10 @@ static void serve_client(int c, struct sockaddr_in *addr, shell_tick_fn tick)
         if (!*p) {
             continue;
         }
+        history_add(p);
         if (!strcmp(p, "exit") || !strcmp(p, "quit")) {
-            send(c, "bye\r\n", 5, 0);
+            const char *bye = C_BOLD C_YELLOW "bye" C_RESET "\r\n";
+            send(c, bye, strlen(bye), 0);
             break;
         }
         const char *o = execute(p);
