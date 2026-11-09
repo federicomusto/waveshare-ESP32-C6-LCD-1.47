@@ -79,16 +79,32 @@ the MAC); the screensaver shows IP + MAC + date/time + firmware version.
 Same WiFi manager + remote shell as demo02 (minus BLE), plus over-the-air
 firmware updates:
 
-- `main/ota.c` — the `ota <url>` command: streams a .bin over plain HTTP into
-  the inactive OTA partition (native_ota pattern), then reboots.
+- `main/ota.c` — the `ota <url>` command. Downloads the .bin over plain HTTP,
+  saves it to `/sdcard/fw.bin` (staging, so a local copy is kept) and applies
+  it to the inactive OTA partition; without a card it streams the image
+  directly. Uses the native_ota pattern (`esp_http_client` +
+  `esp_ota_begin/write/end`).
 - `partitions.csv` — two OTA app partitions (ota_0 + ota_1, no factory), each
-  1.875 MB. `idf.py flash` writes ota_0; an update fills ota_1 (or vice
-  versa) and swaps the boot target.
+  1.875 MB. `idf.py flash` writes ota_0; an update fills the other partition
+  and swaps the boot target.
 
-Once connected, run `ota http://<host>:<port>/demo03.bin` from the shell. The
-LCD shows live progress; the RGB LED pulses white in AP mode. Serve the image
-from any static HTTP server, e.g. `python3 -m http.server 8000` in the build
-directory.
+### Updating over the air
+
+1. **Bump the version** in `main/version.h` (e.g. `0.1.0` → `0.1.1`) so the
+   new image is distinguishable from the running one, then `idf.py build`.
+2. **Serve the image** from any static HTTP server, e.g.
+   `python3 -m http.server 8000` in the `build/` directory.
+3. **Trigger the update** from the shell:
+   `ota http://<host>:8000/demo03.bin`
+   The LCD shows live progress (download, then write); on success the board
+   reboots into the new firmware and `version` reports the bumped number.
+4. **Verify**: `sd ls` shows the staged `/sdcard/fw.bin`, and `version` shows
+   the new number.
+
+The RGB LED pulses white while in AP mode and the shell runs on port 23 as in
+demo02. Note: plain HTTP is unauthenticated — fine for a local-network demo;
+for a real deployment switch to `esp_https_ota` + a CA cert (same flow, TLS
+transport).
 
 ## Driver API (`components/st7789/`)
 
