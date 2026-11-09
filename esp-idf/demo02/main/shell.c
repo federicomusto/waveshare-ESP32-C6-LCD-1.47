@@ -33,6 +33,7 @@
 #include "lwip/ip4_addr.h"
 #include "shell.h"
 #include "ble_scan.h"
+#include "version.h"
 
 static const char *TAG = "shell";
 
@@ -189,7 +190,7 @@ static void cmd_help_impl(sb_t *sb)
     sb_line(sb, "  freq                 CPU frequency");
     sb_line(sb, "  flash                flash size");
     sb_line(sb, "  uname                system info");
-    sb_line(sb, "  version              ESP-IDF version");
+    sb_line(sb, "  version              firmware version");
     sb_line(sb, "  uptime               time since boot");
     sb_line(sb, "  time                 current date/time (UTC)");
     sb_line(sb, "  status               quick summary");
@@ -403,7 +404,8 @@ static void cmd_uname_impl(sb_t *sb)
 
 static void cmd_version_impl(sb_t *sb)
 {
-    sb_line(sb, "ESP-IDF %s", esp_get_idf_version());
+    sb_line(sb, "%s v%s (ESP-IDF %s)", APP_NAME, APP_VERSION,
+            esp_get_idf_version());
 }
 
 static void cmd_uptime_impl(sb_t *sb)
@@ -563,8 +565,10 @@ static void serve_client(int c, struct sockaddr_in *addr, shell_tick_fn tick)
         setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     }
 
-    const char *banner = "\r\nESP32-C6 shell - type 'help'\r\n";
-    send(c, banner, strlen(banner), 0);
+    char banner[64];
+    int bn = snprintf(banner, sizeof(banner),
+                      "\r\nESP32-C6 shell v%s - type 'help'\r\n", APP_VERSION);
+    send(c, banner, bn, 0);
     char cl[64];
     int cn = snprintf(cl, sizeof(cl), "client: %s\r\n", ip);
     send(c, cl, cn, 0);

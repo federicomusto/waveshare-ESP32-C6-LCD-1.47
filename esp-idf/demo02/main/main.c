@@ -42,6 +42,7 @@
 #include "wifi_manager.h"
 #include "shell.h"
 #include "ble_scan.h"
+#include "version.h"
 
 static const char *TAG = "demo02";
 
@@ -127,9 +128,11 @@ static void set_red(void)
 /* --- Display helpers (ported from main.py show()/show_ap()) --- */
 static void show(const char *const lines[], int n, uint16_t color)
 {
+    char title[32];
+    snprintf(title, sizeof(title), "ESP32-C6 WiFi v%s", APP_VERSION);
     st7789_fill(&lcd, BLACK);
     st7789_fill_rect(&lcd, 0, 0, W, 20, BLUE);
-    st7789_text(&lcd, "ESP32-C6 WiFi", 4, 2, WHITE, 1);
+    st7789_text(&lcd, title, 4, 2, WHITE, 1);
     int y = 32;
     for (int i = 0; i < n; i++) {
         st7789_text(&lcd, lines[i], 6, y, color, 1);
@@ -245,13 +248,15 @@ static void draw_countdown(int remaining)
 
 static void draw_screensaver(const char *ip)
 {
-    /* Black background + two independently drifting texts. */
-    char b[48], t[48];
+    /* Black background + two drifting texts + a static version tag. */
+    char b[48], t[48], v[16];
     st7789_fill(&lcd, BLACK);
     snprintf(b, sizeof(b), "IP: %s", ip);
     st7789_text(&lcd, b, ip_x, ip_y, WHITE, 1);
     local_time_str(t, sizeof(t));
     st7789_text(&lcd, t, sa_x, sa_y, CYAN, 1);
+    snprintf(v, sizeof(v), "v%s", APP_VERSION);
+    st7789_text(&lcd, v, W - 40, H - 12, GREEN, 1);
 }
 
 /* One non-blocking screensaver step (called ~5x/s by the shell). */
