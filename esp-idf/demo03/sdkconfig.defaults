@@ -1,0 +1,8 @@
+# Waveshare ESP32-C6-LCD-1.47 has 4 MB flash.
+CONFIG_IDF_TARGET="esp32c6"
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+
+# Two OTA app partitions (ota_0 + ota_1, no factory) so a new firmware can
+# be downloaded over the air and swapped in.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"

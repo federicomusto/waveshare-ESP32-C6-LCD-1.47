@@ -40,6 +40,9 @@ extern "C" {
 #define ST7789_COLOR_RED     0xF800
 #define ST7789_COLOR_GREEN   0x07E0
 #define ST7789_COLOR_BLUE    0x001F
+#define ST7789_COLOR_CYAN    0x07FF
+#define ST7789_COLOR_MAGENTA 0xF81F
+#define ST7789_COLOR_YELLOW  0xFFE0
 
 typedef struct {
     int rot;        /* 0..3 */

@@ -1,0 +1,9 @@
+# demo03 OTA partition table (4 MB flash).
+# Two OTA app partitions (no factory): idf.py flash writes to ota_0, and an
+# OTA update writes to ota_1 (the inactive one), then swaps the boot target.
+# Name,   Type, SubType,  Offset,   Size
+nvs,      data, nvs,      0x9000,   0x5000,
+otadata,  data, ota,      0xe000,   0x2000,
+phy_init, data, phy,      0x10000,  0x1000,
+ota_0,    app,  ota_0,    0x20000,  0x1E0000,
+ota_1,    app,  ota_1,    0x200000, 0x1E0000,
