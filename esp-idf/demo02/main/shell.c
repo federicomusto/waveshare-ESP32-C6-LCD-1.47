@@ -562,6 +562,10 @@ static const char *execute(const char *line)
 }
 
 /* --- Server --- */
+/* Read one line byte-by-byte until LF. Returns its length (0-terminated), or
+ * -1 when the client closes. Every recv() timeout runs tick(), so the
+ * caller's screensaver keeps animating while a client sits idle at the
+ * prompt. */
 static int read_line(int c, shell_tick_fn tick, char *buf, size_t len)
 {
     size_t n = 0;
@@ -593,6 +597,8 @@ static int read_line(int c, shell_tick_fn tick, char *buf, size_t len)
     }
 }
 
+/* Run the prompt loop for one connected client: print the banner (with the
+ * client's source IP), then read / execute / respond until 'exit' or a drop. */
 static void serve_client(int c, struct sockaddr_in *addr, shell_tick_fn tick)
 {
     char ip[16];

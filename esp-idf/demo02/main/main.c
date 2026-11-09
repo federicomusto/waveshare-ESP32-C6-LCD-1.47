@@ -17,10 +17,12 @@
  *
  * Screensaver:
  *   The "connected" screen shows a 60-second countdown; when it reaches zero
- *   the screen is replaced by a black screen showing only the board IP and a
- *   drifting clock (date + time with its UTC offset); both texts drift
- *   independently every 3 s while the RGB LED cycles through colors. Pressing
- *   BOOT returns to the connected screen and restarts the 60 s timer.
+ *   the screen is replaced by a black screensaver. It shows the board IP with
+ *   its MAC on the line below (drifting together as one block) and a clock
+ *   (date + time + UTC offset + firmware version) that drifts on its own;
+ *   both move every 3 s and bounce off the screen edges while the RGB LED
+ *   cycles through colors. Pressing BOOT returns to the connected screen and
+ *   restarts the 60 s timer.
  *
  * Everything is single-threaded: the shell (shell.c) accepts a `tick`
  * callback that it invokes ~5x/s while waiting for connections/input, and
@@ -127,6 +129,9 @@ static void set_red(void)
 }
 
 /* --- Display helpers (ported from main.py show()/show_ap()) --- */
+/* Draw a full screen: a blue title bar ("ESP32-C6 WiFi v<ver>") at the top,
+ * then `n` body lines starting 12 px below it, 15 px apart. Every
+ * non-screensaver screen (boot, AP, connected, failure) is built on this. */
 static void show(const char *const lines[], int n, uint16_t color)
 {
     char title[32];
@@ -313,6 +318,9 @@ static void sa_tick(void)
     /* Screensaver showing: move both texts every 3 s, bouncing off the edges. */
     if ((now - sa_last_move) >= SA_MOVE_MS * 1000LL) {
         sa_last_move = now;
+        /* Move by 12 px; if a text crossed an edge, flip its direction and
+         * apply the step again so it walks back inside the screen. The W/H
+         * limits are the text widths, so the right/bottom edges never clip. */
         /* IP + MAC block: "MAC: XX:XX:XX:XX:XX:XX" is ~22 chars wide */
         ip_x += ip_dx * 12;
         ip_y += ip_dy * 12;

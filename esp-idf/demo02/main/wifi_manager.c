@@ -47,6 +47,7 @@ static volatile bool s_ap_started;
 static volatile bool s_got_ip;
 static esp_ip4_addr_t s_sta_ip;
 
+/* Human-readable name for a wifi_auth_mode_t (same table as the MicroPython). */
 static const char *auth_name(int a)
 {
     switch (a) {
@@ -62,6 +63,10 @@ static const char *auth_name(int a)
     }
 }
 
+/* ESP event handler, runs on the system event task. WiFi association is
+ * asynchronous: this handler only records state in flags, and wm_try_connect
+ * polls them while it waits. STA_DISCONNECTED clears the IP flag so a stale
+ * address is never reported after the link drops. */
 static void event_handler(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     if (base == WIFI_EVENT) {
@@ -159,6 +164,9 @@ bool wm_try_connect(const char *ssid, const char *pw, int timeout_s, wm_tick_fn 
     s_got_ip = false;
     ESP_ERROR_CHECK(esp_wifi_connect());
 
+    /* Poll for the DHCP result: s_got_ip is set by the event handler once the
+     * STA is associated and has an IP. tick() keeps the LED animating while
+     * we wait (up to timeout_s). */
     int64_t t0 = esp_timer_get_time();
     int64_t limit = (int64_t)timeout_s * 1000000LL;
     while ((esp_timer_get_time() - t0) < limit) {
@@ -193,7 +201,9 @@ void wm_sta_disconnect(void)
 
 bool wm_start_ap(void)
 {
-    /* Switching mode requires WiFi to be stopped first. */
+    /* Bring the hotspot up. Mode changes require WiFi to be stopped first.
+     * We switch to APSTA (not AP-only): the STA half stays available so the
+     * portal can scan and later connect to the network the user picks. */
     ESP_ERROR_CHECK(esp_wifi_stop());
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
 
@@ -477,6 +487,8 @@ void wm_serve(wm_tick_fn tick, void (*on_start)(void),
             continue;
         }
 
+        /* Two routes: /connect (form submit -> save + connect) and anything
+         * else ("/", "/scan", ...) which just renders the network list. */
         if (strncmp(path, "/connect", 8) == 0) {
             char ssid[65] = {0}, pw[65] = {0};
             const char *q = strchr(path, '?');
