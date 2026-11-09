@@ -418,6 +418,9 @@ static void cmd_sd_impl(sb_t *sb, int argc, char **argv)
                 count++;
             }
             closedir(d);
+            if (count == 0) {
+                sb_line(sb, "(empty directory)");
+            }
             return;
         }
 
@@ -658,6 +661,7 @@ static const char *execute(const char *line)
     }
 
     sb_t sb = { out, sizeof(out), 0 };
+    out[0] = '\0';   /* clear stale output from the previous command */
 
     if (!strcmp(name, "help")) {
         cmd_help_impl(&sb);
