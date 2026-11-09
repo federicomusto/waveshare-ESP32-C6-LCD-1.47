@@ -101,6 +101,20 @@ bool wm_init(void)
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
 
+    /* Give the STA a unique DHCP hostname derived from the last two bytes of
+     * the base MAC (e.g. "espressif-18-24"), so the board is distinguishable
+     * in the router's client list instead of a generic "espressif". ':' is not
+     * valid in a hostname, hence the dashes. Must be set before connecting so
+     * the DHCP DISCOVER already carries it. */
+    uint8_t mac[6];
+    if (esp_wifi_get_mac(WIFI_IF_STA, mac) == ESP_OK) {
+        char hostname[16];
+        snprintf(hostname, sizeof(hostname), "espressif-%02x-%02x",
+                 mac[4], mac[5]);
+        esp_netif_set_hostname(s_sta_netif, hostname);
+        ESP_LOGI(TAG, "STA hostname: %s", hostname);
+    }
+
     ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
                                                         &event_handler, NULL, NULL));
     ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
