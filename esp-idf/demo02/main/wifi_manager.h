@@ -45,6 +45,9 @@ bool wm_start_ap(void);            /* switch to APSTA and bring the hotspot up *
 /* Dotted-quad of the STA IP; returns false if not connected yet. */
 bool wm_get_sta_ip(char *buf, size_t len);
 
+/* Formatted STA MAC ("XX:XX:XX:XX:XX:XX"); false if unavailable. */
+bool wm_get_sta_mac(char *buf, size_t len);
+
 /* Deduped scan, strongest first. Returns the number of entries. */
 int wm_scan(wm_ap_entry_t *out, int max);
 

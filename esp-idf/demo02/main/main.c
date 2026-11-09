@@ -87,6 +87,7 @@ static int sa_last_count = -1;            /* last countdown drawn (avoid redraw)
 static int ip_x, ip_y, ip_dx, ip_dy;      /* IP text position + drift */
 static int sa_x, sa_y, sa_dx, sa_dy;      /* clock text position + drift */
 static char sa_ip[16];                    /* board IP, shown on both screens */
+static char sa_mac[18];                   /* board MAC, shown under the IP */
 static char sa_ssid[33];                  /* connected SSID (connected screen) */
 
 typedef struct { uint8_t r, g, b; } rgb_t;
@@ -248,12 +249,14 @@ static void draw_countdown(int remaining)
 
 static void draw_screensaver(const char *ip)
 {
-    /* Black background + two drifting texts. The clock carries the version,
-     * so the version drifts together with the date/time. */
-    char b[48], t[48], tv[64];
+    /* Black background + drifting texts. The IP and MAC move together as a
+     * two-line block; the clock carries the version and drifts on its own. */
+    char b[48], m[32], t[48], tv[64];
     st7789_fill(&lcd, BLACK);
     snprintf(b, sizeof(b), "IP: %s", ip);
     st7789_text(&lcd, b, ip_x, ip_y, WHITE, 1);
+    snprintf(m, sizeof(m), "MAC: %s", sa_mac);
+    st7789_text(&lcd, m, ip_x, ip_y + 12, WHITE, 1);
     local_time_str(t, sizeof(t));
     snprintf(tv, sizeof(tv), "%s v%s", t, APP_VERSION);
     st7789_text(&lcd, tv, sa_x, sa_y, CYAN, 1);
@@ -309,11 +312,11 @@ static void sa_tick(void)
     /* Screensaver showing: move both texts every 3 s, bouncing off the edges. */
     if ((now - sa_last_move) >= SA_MOVE_MS * 1000LL) {
         sa_last_move = now;
-        /* IP text: "IP: a.b.c.d" is ~18 chars (~144 px wide) */
+        /* IP + MAC block: "MAC: XX:XX:XX:XX:XX:XX" is ~22 chars wide */
         ip_x += ip_dx * 12;
         ip_y += ip_dy * 12;
         if (ip_x <= 0 || ip_x > W - 150) { ip_dx = -ip_dx; ip_x += ip_dx * 12; }
-        if (ip_y <= 0 || ip_y > H - 12)  { ip_dy = -ip_dy; ip_y += ip_dy * 12; }
+        if (ip_y <= 0 || ip_y > H - 20)  { ip_dy = -ip_dy; ip_y += ip_dy * 12; }
         /* Clock text: date + time + version (~32 chars, ~192 px wide) */
         sa_x += sa_dx * 12;
         sa_y += sa_dy * 12;
@@ -336,6 +339,7 @@ static void enter_connected(const char *ip, const char *ssid)
 {
     strlcpy(sa_ip, ip, sizeof(sa_ip));
     strlcpy(sa_ssid, ssid ? ssid : "", sizeof(sa_ssid));
+    wm_get_sta_mac(sa_mac, sizeof(sa_mac));
     sa_last_press = esp_timer_get_time();   /* start the 60 s idle window */
     sa_last_count = SA_IDLE_MS / 1000;
     sync_time();

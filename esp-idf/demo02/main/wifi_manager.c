@@ -229,6 +229,17 @@ bool wm_get_sta_ip(char *buf, size_t len)
     return true;
 }
 
+bool wm_get_sta_mac(char *buf, size_t len)
+{
+    uint8_t mac[6];
+    if (esp_wifi_get_mac(WIFI_IF_STA, mac) != ESP_OK) {
+        return false;
+    }
+    snprintf(buf, len, "%02X:%02X:%02X:%02X:%02X:%02X",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    return true;
+}
+
 int wm_scan(wm_ap_entry_t *out, int max)
 {
     wifi_scan_config_t cfg = {
