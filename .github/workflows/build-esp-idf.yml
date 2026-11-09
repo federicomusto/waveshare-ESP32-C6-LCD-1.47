@@ -1,0 +1,41 @@
+name: Build ESP-IDF
+
+# Compiles the native C projects (demo01 and demo02) for the ESP32-C6 using the
+# official espressif/esp-idf-ci-action. This is the CI equivalent of the local
+# "idf.py set-target esp32c6 && idf.py build" — it catches any compile error in
+# the ST7789 driver or the demo apps.
+#
+# demo02 shares the ST7789 component via EXTRA_COMPONENT_DIRS="../components",
+# so both projects are checked out together (no submodules) and built from
+# their own directory.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: demo01
+            path: esp-idf
+          - name: demo02
+            path: esp-idf/demo02
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build ${{ matrix.name }} (esp32c6)
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: release-v6.1
+          target: esp32c6
+          path: ${{ matrix.path }}
