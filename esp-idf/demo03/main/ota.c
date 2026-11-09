@@ -26,25 +26,33 @@
 #define OTA_FW_PATH  SD_MOUNT_POINT "/fw.bin"
 
 static const char *TAG = "ota";
-static ota_progress_fn s_cb = NULL;
+static ota_progress_fn s_cb = NULL;       /* LCD (main.c) */
+static ota_progress_fn s_shell_cb = NULL; /* shell (shell.c) */
 
-/* Forward a progress line to the registered callback (e.g. the LCD). */
+/* Forward a progress line to the registered callbacks. */
 static void report(int pct, const char *fmt, ...)
 {
-    if (!s_cb) {
-        return;
-    }
     char msg[80];
     va_list ap;
     va_start(ap, fmt);
     vsnprintf(msg, sizeof(msg), fmt, ap);
     va_end(ap);
-    s_cb(pct, msg);
+    if (s_cb) {
+        s_cb(pct, msg);
+    }
+    if (s_shell_cb) {
+        s_shell_cb(pct, msg);
+    }
 }
 
 void ota_set_progress_cb(ota_progress_fn cb)
 {
     s_cb = cb;
+}
+
+void ota_set_shell_progress_cb(ota_progress_fn cb)
+{
+    s_shell_cb = cb;
 }
 
 /* Download the already-open HTTP stream into `f`, reporting 0..100%. */

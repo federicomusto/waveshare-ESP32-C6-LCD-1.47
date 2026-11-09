@@ -22,6 +22,10 @@ typedef void (*ota_progress_fn)(int percent, const char *status);
 /* Register the progress callback (main.c wires it to the LCD at boot). */
 void ota_set_progress_cb(ota_progress_fn cb);
 
+/* Register a second progress callback (the shell wires it to the live TCP
+ * socket so the download/write progress is shown on the shell too). */
+void ota_set_shell_progress_cb(ota_progress_fn cb);
+
 /* Download `url` over HTTP, write it to the inactive OTA partition and mark
  * it bootable. Returns ESP_OK on success (the caller should then reboot); on
  * failure the OTA is aborted and an error is returned. */

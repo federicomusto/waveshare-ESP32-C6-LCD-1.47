@@ -51,9 +51,6 @@ extern const char *led_state(void);
 
 static const char *TAG = "shell";
 
-/* Set by `ota` when an update succeeds; serve_client reboots after replying. */
-static bool s_ota_reboot = false;
-
 #define SHELL_MAX_APS   32
 
 /* ANSI color codes for the interactive shell (banner, prompt, errors). */
@@ -350,22 +347,6 @@ static void cmd_wifi_impl(sb_t *sb, int argc, char **argv)
             sb_line(sb, "AP SSID: %s", acfg.ap.ssid);
         }
         sb_line(sb, "AP IP: " IPSTR, IP2STR(&aip.ip));
-    }
-}
-
-static void cmd_ota_impl(sb_t *sb, int argc, char **argv)
-{
-    if (argc < 2 || !argv[1]) {
-        sb_line(sb, "usage: ota <http://host/firmware.bin>");
-        return;
-    }
-    sb_line(sb, "Downloading %s ...", argv[1]);
-    esp_err_t err = ota_do(argv[1]);
-    if (err == ESP_OK) {
-        sb_line(sb, C_GREEN "OTA OK - rebooting..." C_RESET);
-        s_ota_reboot = true;
-    } else {
-        sb_line(sb, C_RED "OTA failed: %s" C_RESET, esp_err_to_name(err));
     }
 }
 
@@ -757,8 +738,6 @@ static const char *execute(const char *line)
         cmd_led_impl(&sb, argc, argv);
     } else if (!strcmp(name, "sd")) {
         cmd_sd_impl(&sb, argc, argv);
-    } else if (!strcmp(name, "ota")) {
-        cmd_ota_impl(&sb, argc, argv);
     } else if (!strcmp(name, "ls")) {
         cmd_ls_impl(&sb, argc, argv);
     } else if (!strcmp(name, "cat")) {
@@ -1052,6 +1031,51 @@ static void edit_mode(int c, shell_tick_fn tick, const char *path)
     }
 }
 
+/* --- OTA over HTTP, run live on the shell --- */
+static int s_ota_client = -1;
+
+/* Progress callback for the shell: sends throttled 'NN% status' lines. */
+static void ota_progress_send(int pct, const char *status)
+{
+    if (s_ota_client < 0) {
+        return;
+    }
+    static int last_pct = -2;
+    static char last_status[32] = "";
+    static int64_t last_us = 0;
+    int64_t now = esp_timer_get_time();
+    bool changed = strcmp(status, last_status) != 0;
+    if (!changed && pct == last_pct && (now - last_us) < 400000LL) {
+        return;
+    }
+    strlcpy(last_status, status, sizeof(last_status));
+    last_pct = pct;
+    last_us = now;
+
+    if (pct >= 0) {
+        edit_send(s_ota_client, "  %3d%% %s", pct, status);
+    } else {
+        edit_send(s_ota_client, "  %s", status);
+    }
+}
+
+/* Run the OTA inline (like `edit`): sends the progress live, then the result. */
+static void ota_mode(int c, const char *url)
+{
+    edit_send(c, "Downloading %s ...", url);
+    s_ota_client = c;
+    esp_err_t err = ota_do(url);
+    s_ota_client = -1;
+
+    if (err == ESP_OK) {
+        edit_send(c, C_GREEN "OTA OK - rebooting..." C_RESET);
+        vTaskDelay(pdMS_TO_TICKS(300));     /* let the reply flush, then boot */
+        esp_restart();
+    } else {
+        edit_send(c, C_RED "OTA failed: %s" C_RESET, esp_err_to_name(err));
+    }
+}
+
 /* Run the prompt loop for one connected client: negotiate telnet echo, print a
  * colored banner, then read / execute / respond with history + colors. */
 static void serve_client(int c, struct sockaddr_in *addr, shell_tick_fn tick)
@@ -1116,14 +1140,24 @@ static void serve_client(int c, struct sockaddr_in *addr, shell_tick_fn tick)
             }
             continue;
         }
+        /* OTA also runs live (progress + result on the socket). */
+        if (strncmp(p, "ota", 3) == 0 && (p[3] == '\0' || p[3] == ' ')) {
+            const char *url = p + 3;
+            while (*url == ' ') {
+                url++;
+            }
+            if (*url) {
+                ota_mode(c, url);
+            } else {
+                const char *u = "usage: ota <http://host/firmware.bin>\r\n";
+                send(c, u, strlen(u), 0);
+            }
+            continue;
+        }
         const char *o = execute(p);
         if (o) {
             send(c, o, strlen(o), 0);
             send(c, "\r\n", 2, 0);
-        }
-        if (s_ota_reboot) {
-            vTaskDelay(pdMS_TO_TICKS(300));   /* let the reply flush, then boot */
-            esp_restart();
         }
     }
     close(c);
@@ -1131,6 +1165,9 @@ static void serve_client(int c, struct sockaddr_in *addr, shell_tick_fn tick)
 
 void shell_run(uint16_t port, shell_tick_fn tick)
 {
+    /* Forward OTA progress to the shell socket as well as the LCD. */
+    ota_set_shell_progress_cb(ota_progress_send);
+
     int s = socket(AF_INET, SOCK_STREAM, 0);
     if (s < 0) {
         ESP_LOGE(TAG, "socket() failed: %d", errno);

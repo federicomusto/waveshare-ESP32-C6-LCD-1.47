@@ -20,6 +20,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_system.h"
+#include "esp_ota_ops.h"
 #include "driver/gpio.h"
 #include "led_strip.h"
 #include "st7789.h"
@@ -113,17 +114,28 @@ static void ota_lcd_progress(int pct, const char *status)
     }
 }
 
-/* Connected screen: version + IP + how to trigger OTA. */
+/* Connected screen: version + IP + MAC + boot partition + OTA hint. */
 static void show_connected(const char *ip)
 {
     st7789_fill(&lcd, ST7789_COLOR_BLACK);
-    char l1[48], l2[48];
+    char l1[48], l2[48], l3[48], l4[48];
+
     snprintf(l1, sizeof(l1), "demo03 v" APP_VERSION);
     snprintf(l2, sizeof(l2), "IP: %s", ip);
-    lcd_text_center(24, l1, ST7789_COLOR_WHITE);
-    lcd_text_center(48, l2, ST7789_COLOR_GREEN);
-    lcd_text_center(84, "telnet <ip> 23", ST7789_COLOR_CYAN);
-    lcd_text_center(104, "then: ota <url>", ST7789_COLOR_CYAN);
+
+    char mac[18] = "?";
+    wm_get_sta_mac(mac, sizeof(mac));
+    snprintf(l3, sizeof(l3), "MAC: %s", mac);
+
+    const esp_partition_t *run = esp_ota_get_running_partition();
+    snprintf(l4, sizeof(l4), "boot: %s", run ? run->label : "?");
+
+    lcd_text_center(12, l1, ST7789_COLOR_WHITE);
+    lcd_text_center(32, l2, ST7789_COLOR_GREEN);
+    lcd_text_center(52, l3, ST7789_COLOR_CYAN);
+    lcd_text_center(72, l4, ST7789_COLOR_YELLOW);
+    lcd_text_center(104, "telnet <ip> 23", ST7789_COLOR_CYAN);
+    lcd_text_center(124, "then: ota <url>", ST7789_COLOR_CYAN);
 }
 
 /* Runs while the shell is idle (accept/recv timeouts). Blinks the LED. */
