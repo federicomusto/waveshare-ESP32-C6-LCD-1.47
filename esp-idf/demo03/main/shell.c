@@ -247,6 +247,10 @@ static void cmd_help_impl(sb_t *sb)
     sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "led <mode>", "RGB LED: on/off/color/blink");
     sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "sd [ls|cat|rm]", "SD card status / files");
     sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "ota <url>", "update firmware over HTTP");
+    sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "ls [path]", "list files (SD card)");
+    sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "cat <file>", "print a text file");
+    sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "rm <file>", "delete a file");
+    sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "edit <file>", "mini text editor");
     sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "gpio <pin>", "read a GPIO pin");
     sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "spi", "SPI bus + onboard devices");
     sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "i2c scan [sda] [scl]", "scan I2C bus (default 18 19)");
@@ -472,6 +476,85 @@ static void cmd_sd_impl(sb_t *sb, int argc, char **argv)
     sb_line(sb, "  subcommands: ls [path] | cat <file> | rm <file>");
 }
 
+/* Resolve a shell path: a bare filename is relative to the SD card. */
+static void resolve_path(const char *arg, char *out, size_t out_len)
+{
+    if (arg && arg[0] == '/') {
+        strlcpy(out, arg, out_len);
+    } else {
+        snprintf(out, out_len, SD_MOUNT_POINT "/%s", arg ? arg : "");
+    }
+}
+
+static void cmd_ls_impl(sb_t *sb, int argc, char **argv)
+{
+    char path[260];
+    resolve_path((argc >= 2 && argv[1]) ? argv[1] : SD_MOUNT_POINT, path, sizeof(path));
+    DIR *d = opendir(path);
+    if (!d) {
+        sb_line(sb, C_RED "opendir(%s): %s" C_RESET, path, strerror(errno));
+        return;
+    }
+    struct dirent *e;
+    int count = 0;
+    while ((e = readdir(d)) != NULL && count < 128) {
+        char full[520];
+        snprintf(full, sizeof(full), "%s/%s", path, e->d_name);
+        struct stat st;
+        if (stat(full, &st) == 0 && S_ISDIR(st.st_mode)) {
+            sb_line(sb, "  %-24s <dir>", e->d_name);
+        } else {
+            sb_line(sb, "  %-24s %ld", e->d_name, (long)st.st_size);
+        }
+        count++;
+    }
+    closedir(d);
+    if (count == 0) {
+        sb_line(sb, "(empty directory)");
+    }
+}
+
+static void cmd_cat_impl(sb_t *sb, int argc, char **argv)
+{
+    if (argc < 2 || !argv[1]) {
+        sb_line(sb, "usage: cat <file>");
+        return;
+    }
+    char path[260];
+    resolve_path(argv[1], path, sizeof(path));
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        sb_line(sb, C_RED "fopen(%s): %s" C_RESET, path, strerror(errno));
+        return;
+    }
+    char line[256];
+    int n = 0;
+    while (fgets(line, sizeof(line), f) && n < 64) {
+        char *nl = strpbrk(line, "\r\n");
+        if (nl) {
+            *nl = '\0';
+        }
+        sb_line(sb, "%s", line);
+        n++;
+    }
+    fclose(f);
+}
+
+static void cmd_rm_impl(sb_t *sb, int argc, char **argv)
+{
+    if (argc < 2 || !argv[1]) {
+        sb_line(sb, "usage: rm <file>");
+        return;
+    }
+    char path[260];
+    resolve_path(argv[1], path, sizeof(path));
+    if (remove(path) == 0) {
+        sb_line(sb, "removed %s", path);
+    } else {
+        sb_line(sb, C_RED "remove(%s): %s" C_RESET, path, strerror(errno));
+    }
+}
+
 static void cmd_gpio_impl(sb_t *sb, int argc, char **argv)
 {
     if (argc < 2) {
@@ -676,6 +759,12 @@ static const char *execute(const char *line)
         cmd_sd_impl(&sb, argc, argv);
     } else if (!strcmp(name, "ota")) {
         cmd_ota_impl(&sb, argc, argv);
+    } else if (!strcmp(name, "ls")) {
+        cmd_ls_impl(&sb, argc, argv);
+    } else if (!strcmp(name, "cat")) {
+        cmd_cat_impl(&sb, argc, argv);
+    } else if (!strcmp(name, "rm")) {
+        cmd_rm_impl(&sb, argc, argv);
     } else if (!strcmp(name, "gpio")) {
         cmd_gpio_impl(&sb, argc, argv);
     } else if (!strcmp(name, "spi")) {
@@ -825,6 +914,144 @@ static int read_line_editor(int c, shell_tick_fn tick, const char *prompt,
     }
 }
 
+/* --- Mini line editor (create/edit/save text files on the SD card) --- */
+#define EDIT_MAX_LINES 200
+#define EDIT_MAX_LINE  128
+
+static char e_lines[EDIT_MAX_LINES][EDIT_MAX_LINE];
+static int e_count = 0;
+
+/* Send one formatted line directly to the client (editor responses bypass
+ * the small one-shot `out` buffer). */
+static void edit_send(int c, const char *fmt, ...)
+{
+    char buf[256];
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+    if (n > 0) {
+        send(c, buf, (size_t)n, 0);
+    }
+    send(c, "\r\n", 2, 0);
+}
+
+/* Write the edited buffer back to the file. */
+static void edit_save(int c, const char *path)
+{
+    FILE *f = fopen(path, "w");
+    if (!f) {
+        edit_send(c, C_RED "cannot write %s: %s" C_RESET, path, strerror(errno));
+        return;
+    }
+    for (int i = 0; i < e_count; i++) {
+        fprintf(f, "%s\n", e_lines[i]);
+    }
+    fclose(f);
+    edit_send(c, "saved %d line(s) to %s", e_count, path);
+}
+
+/* Interactive line editor loop. Commands: a <text> append, i <N> <text>
+ * insert, d <N> delete, p print, w save, x save+quit, q quit, h help. */
+static void edit_mode(int c, shell_tick_fn tick, const char *path)
+{
+    char full[260];
+    resolve_path(path, full, sizeof(full));
+
+    e_count = 0;
+    FILE *f = fopen(full, "r");
+    if (f) {
+        while (e_count < EDIT_MAX_LINES && fgets(e_lines[e_count], EDIT_MAX_LINE, f)) {
+            char *nl = strpbrk(e_lines[e_count], "\r\n");
+            if (nl) {
+                *nl = '\0';
+            }
+            e_count++;
+        }
+        fclose(f);
+        edit_send(c, "editing %s (%d lines) - h for help", full, e_count);
+    } else if (errno == ENOENT) {
+        edit_send(c, "new file: %s", full);
+    } else {
+        edit_send(c, C_RED "cannot open %s: %s" C_RESET, full, strerror(errno));
+        return;
+    }
+
+    char line[EDIT_MAX_LINE + 8];
+    while (1) {
+        int r = read_line_editor(c, tick, "edit> ", line, sizeof(line));
+        if (r < 0) {
+            break;                              /* connection closed */
+        }
+        char *cmd = line;
+        while (*cmd == ' ' || *cmd == '\t') {
+            cmd++;
+        }
+        if (!*cmd) {
+            continue;
+        }
+
+        if (cmd[0] == 'q' && (cmd[1] == '\0' || cmd[1] == ' ')) {
+            edit_send(c, "quit (changes not saved)");
+            break;
+        }
+        if (cmd[0] == 'x' && (cmd[1] == '\0' || cmd[1] == ' ')) {
+            edit_save(c, full);
+            break;
+        }
+        if (cmd[0] == 'w' && (cmd[1] == '\0' || cmd[1] == ' ')) {
+            edit_save(c, full);
+        } else if (cmd[0] == 'h' || cmd[0] == '?') {
+            edit_send(c, "a <text> append | i <N> <text> insert | d <N> delete");
+            edit_send(c, "p print | w save | x save+quit | q quit | h help");
+        } else if (cmd[0] == 'p') {
+            if (e_count == 0) {
+                edit_send(c, "(empty)");
+            }
+            for (int i = 0; i < e_count; i++) {
+                edit_send(c, "%4d: %s", i + 1, e_lines[i]);
+            }
+        } else if (cmd[0] == 'a') {
+            const char *text = cmd + 1;
+            while (*text == ' ' || *text == '\t') {
+                text++;
+            }
+            if (!*text) {
+                edit_send(c, "usage: a <text>");
+            } else if (e_count >= EDIT_MAX_LINES) {
+                edit_send(c, "too many lines (max %d)", EDIT_MAX_LINES);
+            } else {
+                strlcpy(e_lines[e_count++], text, EDIT_MAX_LINE);
+            }
+        } else if (cmd[0] == 'd') {
+            int n = atoi(cmd + 1);
+            if (n < 1 || n > e_count) {
+                edit_send(c, "no line %d (have %d)", n, e_count);
+            } else {
+                memmove(e_lines[n - 1], e_lines[n], (size_t)(e_count - n) * EDIT_MAX_LINE);
+                e_count--;
+                edit_send(c, "deleted line %d", n);
+            }
+        } else if (cmd[0] == 'i') {
+            int n = 0;
+            char text[EDIT_MAX_LINE];
+            if (sscanf(cmd + 1, "%d %[^\n]", &n, text) != 2) {
+                edit_send(c, "usage: i <N> <text>");
+            } else if (n < 1 || n > e_count + 1) {
+                edit_send(c, "line %d out of range (1..%d)", n, e_count + 1);
+            } else if (e_count >= EDIT_MAX_LINES) {
+                edit_send(c, "too many lines (max %d)", EDIT_MAX_LINES);
+            } else {
+                memmove(e_lines[n], e_lines[n - 1], (size_t)(e_count - n + 1) * EDIT_MAX_LINE);
+                strlcpy(e_lines[n - 1], text, EDIT_MAX_LINE);
+                e_count++;
+            }
+        } else {
+            edit_send(c, "unknown command '%s' (h for help)", cmd);
+        }
+    }
+}
+
 /* Run the prompt loop for one connected client: negotiate telnet echo, print a
  * colored banner, then read / execute / respond with history + colors. */
 static void serve_client(int c, struct sockaddr_in *addr, shell_tick_fn tick)
@@ -874,6 +1101,20 @@ static void serve_client(int c, struct sockaddr_in *addr, shell_tick_fn tick)
             const char *bye = C_BOLD C_YELLOW "bye" C_RESET "\r\n";
             send(c, bye, strlen(bye), 0);
             break;
+        }
+        /* The editor needs the live socket, so handle it here (not execute). */
+        if (strncmp(p, "edit", 4) == 0 && (p[4] == '\0' || p[4] == ' ')) {
+            const char *fn = p + 4;
+            while (*fn == ' ') {
+                fn++;
+            }
+            if (*fn) {
+                edit_mode(c, tick, fn);
+            } else {
+                const char *u = "usage: edit <file>\r\n";
+                send(c, u, strlen(u), 0);
+            }
+            continue;
         }
         const char *o = execute(p);
         if (o) {
