@@ -127,6 +127,17 @@ static void shell_tick(void)
     }
 }
 
+/* "Pulse" the RGB LED white (breathe 0..255..0 over ~2 s). Used as the tick
+ * while waiting for the AP portal so the board visibly signals "alive". */
+static void led_pulse_tick(void)
+{
+    int64_t now = esp_timer_get_time();
+    int64_t t = (now / 1000) % 2000;              /* 2 s cycle, ms position */
+    int v = (t < 1000) ? (int)t : (int)(2000 - t);/* triangle 0..1000..0 */
+    int b = v * 255 / 1000;
+    led_rgb(b, b, b);
+}
+
 void app_main(void)
 {
     shell_boot_us = esp_timer_get_time();
@@ -187,6 +198,7 @@ void app_main(void)
             force_ap = true;
             break;
         }
+        led_pulse_tick();
         vTaskDelay(pdMS_TO_TICKS(20));
     }
     ESP_LOGI(TAG, "force_ap: %d", force_ap);
@@ -215,7 +227,7 @@ void app_main(void)
     lcd_text_center(H / 2 - 8, "AP: " WM_AP_SSID, ST7789_COLOR_WHITE);
     lcd_text_center(H / 2 + 8, "http://192.168.4.1", ST7789_COLOR_GREEN);
 
-    wm_serve(NULL, NULL, NULL);                     /* returns after /connect */
+    wm_serve(led_pulse_tick, NULL, NULL);           /* LED pulses while serving */
 
     char ip[16];
     wm_get_sta_ip(ip, sizeof(ip));
