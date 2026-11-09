@@ -830,6 +830,13 @@ static int read_line_editor(int c, shell_tick_fn tick, const char *prompt,
         }
 
         if (ch == '\r' || ch == '\n') {
+            if (ch == '\r') {
+                /* Consume a following LF (telnet CRLF) or NUL (CR NUL) if it
+                 * is already buffered, so it doesn't become a spurious empty
+                 * next line (which would print a second prompt). */
+                char lf;
+                (void)recv(c, &lf, 1, MSG_DONTWAIT);
+            }
             send(c, "\r\n", 2, 0);
             buf[n] = '\0';
             return (int)n;
@@ -1034,23 +1041,22 @@ static void edit_mode(int c, shell_tick_fn tick, const char *path)
 /* --- OTA over HTTP, run live on the shell --- */
 static int s_ota_client = -1;
 
-/* Progress callback for the shell: sends throttled 'NN% status' lines. */
+/* Progress callback for the shell: sends one line per ~10% step (plus phase
+ * changes), so the download/write progress is readable instead of scrolling
+ * 100 lines per second. */
 static void ota_progress_send(int pct, const char *status)
 {
     if (s_ota_client < 0) {
         return;
     }
-    static int last_pct = -2;
+    static int last_pct = -1;
     static char last_status[32] = "";
-    static int64_t last_us = 0;
-    int64_t now = esp_timer_get_time();
     bool changed = strcmp(status, last_status) != 0;
-    if (!changed && pct == last_pct && (now - last_us) < 400000LL) {
-        return;
+    if (!changed && pct - last_pct < 10) {
+        return;                     /* report only ~every 10% and on phase change */
     }
     strlcpy(last_status, status, sizeof(last_status));
     last_pct = pct;
-    last_us = now;
 
     if (pct >= 0) {
         edit_send(s_ota_client, "  %3d%% %s", pct, status);
