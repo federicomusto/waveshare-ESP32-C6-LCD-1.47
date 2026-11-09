@@ -9,6 +9,6 @@
 #define VERSION_H
 
 #define APP_NAME    "demo03"
-#define APP_VERSION "0.1.0"
+#define APP_VERSION "0.1.1"
 
 #endif /* VERSION_H */
