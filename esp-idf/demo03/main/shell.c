@@ -467,6 +467,7 @@ static void resolve_path(const char *arg, char *out, size_t out_len)
     }
 }
 
+/* List a directory (default: the SD card root) with sizes. */
 static void cmd_ls_impl(sb_t *sb, int argc, char **argv)
 {
     char path[260];
@@ -495,6 +496,7 @@ static void cmd_ls_impl(sb_t *sb, int argc, char **argv)
     }
 }
 
+/* Print a text file (first 64 lines) with CR/LF stripped per line. */
 static void cmd_cat_impl(sb_t *sb, int argc, char **argv)
 {
     if (argc < 2 || !argv[1]) {
@@ -521,6 +523,7 @@ static void cmd_cat_impl(sb_t *sb, int argc, char **argv)
     fclose(f);
 }
 
+/* Delete a file from the SD card (or any absolute path). */
 static void cmd_rm_impl(sb_t *sb, int argc, char **argv)
 {
     if (argc < 2 || !argv[1]) {

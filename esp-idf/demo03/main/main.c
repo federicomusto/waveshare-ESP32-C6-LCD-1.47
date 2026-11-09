@@ -166,6 +166,9 @@ static void led_pulse_tick(void)
     led_rgb(b, b, b);
 }
 
+/* Boot flow: LCD + RGB LED + SD card + WiFi, then the remote shell (which
+ * hosts the ota / edit / ls / cat / rm commands). Blocks forever in
+ * shell_run(). */
 void app_main(void)
 {
     shell_boot_us = esp_timer_get_time();
