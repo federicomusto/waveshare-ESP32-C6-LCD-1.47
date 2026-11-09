@@ -21,6 +21,7 @@
 #include "esp_timer.h"
 #include "esp_system.h"
 #include "esp_ota_ops.h"
+#include "esp_sntp.h"
 #include "driver/gpio.h"
 #include "led_strip.h"
 #include "st7789.h"
@@ -164,6 +165,25 @@ static void led_pulse_tick(void)
     int v = (t < 1000) ? (int)t : (int)(2000 - t);/* triangle 0..1000..0 */
     int b = v * 255 / 1000;
     led_rgb(b, b, b);
+}
+
+/* Best-effort NTP sync against pool.ntp.org; blocks up to ~10 s and returns
+ * true on success. Exposed so the shell's `time sync` command can call it
+ * (esp_sntp_init() re-triggers an immediate request on each call). */
+bool sync_time(void)
+{
+    esp_sntp_setoperatingmode(ESP_SNTP_OPMODE_POLL);
+    esp_sntp_setservername(0, "pool.ntp.org");
+    esp_sntp_set_sync_mode(SNTP_SYNC_MODE_IMMED);
+    esp_sntp_init();
+    int64_t t0 = esp_timer_get_time();
+    while ((esp_timer_get_time() - t0) < 10000000LL) {
+        if (esp_sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED) {
+            return true;
+        }
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+    return false;
 }
 
 /* Boot flow: LCD + RGB LED + SD card + WiFi, then the remote shell (which

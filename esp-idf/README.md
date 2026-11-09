@@ -103,11 +103,12 @@ firmware updates:
 
 The RGB LED pulses white while in AP mode and the shell runs on port 23 as in
 demo02. On top of the demo02 command set, demo03 adds file management on the
-SD card — `ls [path]`, `cat <file>`, `rm <file>` and a small line editor
+SD card — `ls [path]`, `cat <file>`, `rm <file>`, a small line editor
 `edit <file>` (commands: `a <text>` append, `i <N> <text>` insert, `d <N>`
-delete, `p` print, `w` save, `x` save+quit, `q` quit, `h` help). The shell
-streams the OTA progress live (download/write in ~10% steps); the connected
-LCD screen shows IP, MAC and the boot partition (ota_0/ota_1).
+delete, `p` print, `w` save, `x` save+quit, `q` quit, `h` help), and
+`time sync` (NTP time update against pool.ntp.org). The shell streams the OTA
+progress live (download/write in ~10% steps); the connected LCD screen shows
+IP, MAC and the boot partition (ota_0/ota_1).
 
 Note: plain HTTP is unauthenticated — fine for a local-network demo; for a
 real deployment switch to `esp_https_ota` + a CA cert (same flow, TLS

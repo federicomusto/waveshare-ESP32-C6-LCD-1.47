@@ -49,6 +49,9 @@ extern void led_set_blink(void);
 extern void led_set_auto(void);
 extern const char *led_state(void);
 
+/* Provided by main.c — blocking NTP time sync (see the `time sync` command). */
+extern bool sync_time(void);
+
 static const char *TAG = "shell";
 
 #define SHELL_MAX_APS   32
@@ -256,7 +259,7 @@ static void cmd_help_impl(sb_t *sb)
     sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "uname", "system info");
     sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "version", "firmware version");
     sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "uptime", "time since boot");
-    sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "time", "current date/time (UTC)");
+    sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "time [sync]", "date/time (UTC); sync = NTP");
     sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "status", "quick summary");
     sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "check", "self-check (mem/wifi/i2c/spi)");
     sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "exit", "close connection");
@@ -655,8 +658,16 @@ static void cmd_uptime_impl(sb_t *sb)
     sb_line(sb, "uptime: %dh %dm %ds", h, m, s);
 }
 
-static void cmd_time_impl(sb_t *sb)
+static void cmd_time_impl(sb_t *sb, int argc, char **argv)
 {
+    if (argc >= 2 && argv && strcmp(argv[1], "sync") == 0) {
+        /* Blocking NTP sync (up to ~10 s); result + time are shown together. */
+        if (sync_time()) {
+            sb_line(sb, C_GREEN "time synced via NTP" C_RESET);
+        } else {
+            sb_line(sb, C_RED "NTP sync failed (internet reachable?)" C_RESET);
+        }
+    }
     time_t t = time(NULL);
     struct tm tm;
     gmtime_r(&t, &tm);
@@ -764,7 +775,7 @@ static const char *execute(const char *line)
     } else if (!strcmp(name, "uptime")) {
         cmd_uptime_impl(&sb);
     } else if (!strcmp(name, "time")) {
-        cmd_time_impl(&sb);
+        cmd_time_impl(&sb, argc, argv);
     } else if (!strcmp(name, "status")) {
         cmd_status_impl(&sb);
     } else if (!strcmp(name, "check")) {
