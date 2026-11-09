@@ -113,8 +113,15 @@ static const char *auth_name(int a)
     }
 }
 
-/* Deduped scan, strongest first (same logic as wifi_manager). */
-typedef struct { char ssid[33]; int8_t rssi; int auth; } shell_ap_t;
+/* Deduped scan, strongest first. Hidden APs (empty SSID) are kept and deduped
+ * by BSSID instead of name. */
+typedef struct {
+    char    ssid[33];   /* network name, or "(hidden)" for hidden APs */
+    uint8_t bssid[6];   /* valid for hidden APs */
+    bool    hidden;
+    int8_t  rssi;
+    int     auth;
+} shell_ap_t;
 
 static int scan_aps(shell_ap_t *aps, int max)
 {
@@ -140,14 +147,24 @@ static int scan_aps(shell_ap_t *aps, int max)
     }
     int n = 0;
     for (int i = 0; i < num; i++) {
-        if (recs[i].ssid[0] == '\0') {
-            continue;                    /* skip hidden networks */
-        }
+        bool hidden = (recs[i].ssid[0] == '\0');
         int idx = -1;
-        for (int j = 0; j < n; j++) {
-            if (strcmp(aps[j].ssid, (const char *)recs[i].ssid) == 0) {
-                idx = j;
-                break;
+        if (hidden) {
+            /* Hidden APs broadcast no SSID; dedup by BSSID instead. */
+            for (int j = 0; j < n; j++) {
+                if (aps[j].hidden &&
+                    memcmp(aps[j].bssid, recs[i].bssid, 6) == 0) {
+                    idx = j;
+                    break;
+                }
+            }
+        } else {
+            for (int j = 0; j < n; j++) {
+                if (!aps[j].hidden &&
+                    strcmp(aps[j].ssid, (const char *)recs[i].ssid) == 0) {
+                    idx = j;
+                    break;
+                }
             }
         }
         if (idx >= 0) {
@@ -155,7 +172,15 @@ static int scan_aps(shell_ap_t *aps, int max)
                 aps[idx].rssi = recs[i].rssi;
             }
         } else if (n < max) {
-            strlcpy(aps[n].ssid, (const char *)recs[i].ssid, sizeof(aps[n].ssid));
+            if (hidden) {
+                strlcpy(aps[n].ssid, "(hidden)", sizeof(aps[n].ssid));
+                memcpy(aps[n].bssid, recs[i].bssid, 6);
+                aps[n].hidden = true;
+            } else {
+                strlcpy(aps[n].ssid, (const char *)recs[i].ssid,
+                        sizeof(aps[n].ssid));
+                aps[n].hidden = false;
+            }
             aps[n].rssi = recs[i].rssi;
             aps[n].auth = (int)recs[i].authmode;
             n++;
@@ -229,8 +254,16 @@ static void cmd_wifi_scan_impl(sb_t *sb)
     }
     sb_line(sb, "WiFi networks:");
     for (int i = 0; i < n; i++) {
-        sb_line(sb, "  %-24s %4d dBm  %s", aps[i].ssid, aps[i].rssi,
-                auth_name(aps[i].auth));
+        if (aps[i].hidden) {
+            /* Hidden networks have no name; identify them by BSSID. */
+            sb_line(sb, "  %-24s %4d dBm  %s  %02x:%02x:%02x:%02x:%02x:%02x",
+                    aps[i].ssid, aps[i].rssi, auth_name(aps[i].auth),
+                    aps[i].bssid[0], aps[i].bssid[1], aps[i].bssid[2],
+                    aps[i].bssid[3], aps[i].bssid[4], aps[i].bssid[5]);
+        } else {
+            sb_line(sb, "  %-24s %4d dBm  %s", aps[i].ssid, aps[i].rssi,
+                    auth_name(aps[i].auth));
+        }
     }
 }
 
