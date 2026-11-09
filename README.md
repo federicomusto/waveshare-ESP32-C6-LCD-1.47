@@ -62,21 +62,28 @@ Once connected, the board runs a TCP shell on the standard telnet port **23**:
 telnet <ip>    # or  nc <ip> 23
 ```
 
-Commands: `help`, `mem`, `cpu`, `wifi`, `wifi scan`, `gpio <pin>`, `spi`,
-`i2c scan [sda] [scl]`, `freq`, `flash`, `uname`, `version`, `uptime`,
-`time`, `status`, `check`, `exit`.
+Commands: `help`, `mem`, `cpu`, `wifi`, `wifi scan`, `bt` (BLE scan),
+`led <on|off|color|blink>`, `gpio <pin>`, `spi`, `i2c scan [sda] [scl]`,
+`freq`, `flash`, `uname`, `version`, `uptime`, `time`, `status`, `check`,
+`exit`. The shell has ANSI colors and up/down arrow command history (use a
+real telnet client, not `nc`, for the full experience).
 
 Note: on **MicroPython** v1.29.0 the `bt` BLE scan is disabled — it crashes
 (Guru Meditation in NimBLE) on an active scan and hangs on a passive scan
 while WiFi is active. The **ESP-IDF** port (`esp-idf/demo02/`) has no such
 limitation and ships a working `bt` BLE scan.
 
-RGB LED states: white blink = AP mode, solid white = connected,
-solid red = connection failed (auto-returns to AP after 5 s).
+RGB LED: white blink = AP mode, solid white = connected, solid red =
+connection failed (auto-returns to AP after 5 s), off = screensaver. The
+`led` shell command overrides it (`led on|off|red|green|blue|cyan|magenta|
+yellow|white|blink`).
+
 The connected screen shows a 60-second countdown; at zero a screensaver kicks
-in: black screen with the board IP and a drifting clock (date + time + UTC
-offset); both texts drift independently every 3 s while the RGB LED cycles
-through colors; press BOOT to return to the connected screen.
+in: black screen with the board IP + MAC and a drifting clock (date + time +
+UTC offset + firmware version); the LED is off during the screensaver; press
+BOOT to return to the connected screen. The DHCP hostname is
+`espressif-XXXX` (last four hex digits of the MAC), so the board is
+identifiable in the router's client list.
 
 ## Setup
 
@@ -112,7 +119,9 @@ through colors; press BOOT to return to the connected screen.
   controller RAM).
 - Rotate in **software** (keep MV=0). Hardware MV rotation fragments the
   image because of the 34-column offset.
-- The RGB LED is a WS2812 in **GRB** order: write `(g, r, b)` to `neopixel`.
+- The RGB LED is **RGB** order (not GRB). MicroPython's `neopixel` driver
+  defaults to GRB and reorders, so write `(g, r, b)` there; the ESP-IDF
+  `led_strip` port uses `LED_STRIP_COLOR_COMPONENT_FMT_RGB`.
 
 ## ESP-IDF (C)
 

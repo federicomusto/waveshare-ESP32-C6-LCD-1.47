@@ -43,11 +43,12 @@ and the RGB LED via `led_strip`.
 Port of the MicroPython `demo/demo02/` (main.py + wifi_manager.py + shell.py):
 
 - `main/main.c` — boot flow (auto-connect / AP portal), LED state machine,
-  60 s screensaver.
+  60 s screensaver, and the `led` command backend.
 - `main/wifi_manager.c` — NVS credentials, STA connect, AP hotspot, web
-  config page on port 80.
-- `main/shell.c` — TCP command shell on port 23.
+  config page on port 80, unique DHCP hostname.
+- `main/shell.c` — TCP command shell on port 23 (ANSI colors + history).
 - `main/ble_scan.c` — NimBLE GAP scan behind the `bt` command.
+- `main/version.h` — firmware version (currently 0.1.2).
 
 On first boot (no saved network) the board opens the hotspot
 `ESP32-C6-Config` on `192.168.4.1`; connect a phone and open
@@ -55,14 +56,19 @@ http://192.168.4.1 to pick a network and enter the password. Credentials are
 saved to NVS and reused on every boot. Hold **BOOT** within 5 s of reset to
 force the portal.
 
-Once connected, `telnet <ip>` (port 23) gives a command shell:
-`help`, `mem`, `cpu`, `wifi`, `wifi scan`, `bt`, `gpio <pin>`, `spi`,
-`i2c scan [sda] [scl]`, `freq`, `flash`, `uname`, `version`, `uptime`,
-`time`, `status`, `check`, `exit`.
+Once connected, `telnet <ip>` (port 23) gives a command shell with ANSI
+colors and up/down arrow command history:
+`help`, `mem`, `cpu`, `wifi`, `wifi scan`, `bt`, `led <on|off|color|blink>`,
+`gpio <pin>`, `spi`, `i2c scan [sda] [scl]`, `freq`, `flash`, `uname`,
+`version`, `uptime`, `time`, `status`, `check`, `exit`.
 
 Unlike the MicroPython build (where BLE scanning crashes/hangs while WiFi is
 active), the native ESP-IDF stack scans BLE fine alongside WiFi: `bt` performs
 a real GAP scan and lists nearby advertisers (name / address / RSSI).
+
+The RGB LED is off during the screensaver and can be overridden from the
+shell (`led`). The DHCP hostname is `espressif-XXXX` (last four hex digits of
+the MAC); the screensaver shows IP + MAC + date/time + firmware version.
 
 ## Driver API (`components/st7789/`)
 
