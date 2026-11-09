@@ -79,6 +79,22 @@ static void lcd_text_center(int y, const char *s, uint16_t color)
 /* OTA progress callback: repaint the LCD with a percentage + status bar. */
 static void ota_lcd_progress(int pct, const char *status)
 {
+    static char last_status[32] = "";
+    static int last_pct = -2;
+    static int64_t last_us = 0;
+    int64_t now = esp_timer_get_time();
+
+    /* Throttle the repaint: only when the status text changes or at most
+     * ~2.5x/s, otherwise the full-screen redraw per 1 KB chunk flickers so
+     * fast the percentage is unreadable. */
+    bool status_changed = strcmp(status, last_status) != 0;
+    if (!status_changed && pct == last_pct && (now - last_us) < 400000LL) {
+        return;
+    }
+    strlcpy(last_status, status, sizeof(last_status));
+    last_pct = pct;
+    last_us = now;
+
     st7789_fill(&lcd, ST7789_COLOR_BLACK);
     char line[48];
     if (pct >= 0) {

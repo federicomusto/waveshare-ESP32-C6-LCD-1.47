@@ -6,3 +6,8 @@ CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
 # be downloaded over the air and swapped in.
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# The OTA command runs inline in the shell (main task): the HTTP client +
+# FatFs SD write + SPI chain overflows the ~3.5 KB default stack, so give the
+# main task the 8 KB ESP-IDF recommends for OTA.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
