@@ -29,6 +29,8 @@ jobs:
             path: esp-idf
           - name: demo02
             path: esp-idf/demo02
+          - name: demo03
+            path: esp-idf/demo03
     steps:
       - name: Checkout
         uses: actions/checkout@v4

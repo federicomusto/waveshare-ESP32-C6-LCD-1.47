@@ -29,8 +29,9 @@ development board (1.47" 172×320 ST7789 IPS LCD), in two flavors:
   - `shell.py` — TCP command shell (mem, cpu, wifi, gpio, spi, i2c scan, ...).
 - `esp-idf/` — native C port for ESP-IDF: the ST7789 driver (init, fill,
   fill_rect, rect, text with a built-in 5x7 font, software rotation) plus
-  demo01 (interactive demo) and `esp-idf/demo02/` (WiFi manager + shell +
-  BLE scan). See [`esp-idf/README.md`](esp-idf/README.md).
+  demo01 (interactive demo), `esp-idf/demo02/` (WiFi manager + shell +
+  BLE scan) and `esp-idf/demo03/` (OTA update over HTTP).
+  See [`esp-idf/README.md`](esp-idf/README.md).
 
 ## Pinout
 
@@ -127,10 +128,12 @@ identifiable in the router's client list.
 
 The `esp-idf/` directory holds a native C port of the ST7789 driver — same
 verified init sequence (MADCTL `0x00`, COLMOD `0x55`, INVON), column offset 34
-and software rotation as the MicroPython version — plus two apps:
-demo01 (interactive demo) and demo02 (WiFi manager + TCP shell + BLE scan).
+and software rotation as the MicroPython version — plus three apps:
+demo01 (interactive demo), demo02 (WiFi manager + TCP shell + BLE scan) and
+demo03 (OTA update over HTTP, two OTA partitions).
 Requires ESP-IDF v6.1, target `esp32c6`, 4 MB flash (set via
-`sdkconfig.defaults`; demo02 uses a 2 MB factory partition).
+`sdkconfig.defaults`; demo02 uses a 2 MB factory partition, demo03 two
+1.875 MB OTA app partitions).
 
 See [`esp-idf/README.md`](esp-idf/README.md) for the API and build/flash
 instructions (note: after `idf.py flash` the LCD needs a manual reset).

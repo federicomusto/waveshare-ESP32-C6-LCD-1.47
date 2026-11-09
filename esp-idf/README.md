@@ -2,11 +2,13 @@
 
 Native C port of the drivers and demos for the Waveshare ESP32-C6-LCD-1.47
 (non-touch, 172×320 ST7789 IPS LCD), verified on hardware. One shared ST7789
-driver plus two apps:
+driver plus three apps:
 
 - **demo01** — interactive 3-screen demo (at this level: `main/`).
 - **demo02** — WiFi manager + TCP shell + BLE scan (in `demo02/`), port of the
   MicroPython `demo/demo02/`.
+- **demo03** — OTA update over HTTP (in `demo03/`): same WiFi manager + shell,
+  plus an `ota <url>` command and two OTA app partitions.
 
 ## Requirements
 
@@ -71,6 +73,22 @@ a real GAP scan and lists nearby advertisers (name / address / RSSI).
 The RGB LED is off during the screensaver and can be overridden from the
 shell (`led`). The DHCP hostname is `espressif-XXXX` (last four hex digits of
 the MAC); the screensaver shows IP + MAC + date/time + firmware version.
+
+## demo03 — OTA update over HTTP
+
+Same WiFi manager + remote shell as demo02 (minus BLE), plus over-the-air
+firmware updates:
+
+- `main/ota.c` — the `ota <url>` command: streams a .bin over plain HTTP into
+  the inactive OTA partition (native_ota pattern), then reboots.
+- `partitions.csv` — two OTA app partitions (ota_0 + ota_1, no factory), each
+  1.875 MB. `idf.py flash` writes ota_0; an update fills ota_1 (or vice
+  versa) and swaps the boot target.
+
+Once connected, run `ota http://<host>:<port>/demo03.bin` from the shell. The
+LCD shows live progress; the RGB LED pulses white in AP mode. Serve the image
+from any static HTTP server, e.g. `python3 -m http.server 8000` in the build
+directory.
 
 ## Driver API (`components/st7789/`)
 
