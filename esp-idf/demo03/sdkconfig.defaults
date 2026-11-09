@@ -11,3 +11,8 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 # FatFs SD write + SPI chain overflows the ~3.5 KB default stack, so give the
 # main task the 8 KB ESP-IDF recommends for OTA.
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+# Bluetooth LE (NimBLE host + on-chip controller) for the `bt` shell command.
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BT_CONTROLLER_ENABLED=y

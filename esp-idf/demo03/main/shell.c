@@ -40,6 +40,7 @@
 #include "version.h"
 #include "sd_card.h"
 #include "ota.h"
+#include "ble_scan.h"
 
 /* Provided by main.c — control the onboard WS2812 RGB LED. */
 extern void led_set_on(void);
@@ -244,6 +245,7 @@ static void cmd_help_impl(sb_t *sb)
     sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "cpu", "detailed CPU info");
     sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "wifi", "WiFi status");
     sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "wifi scan", "list visible WiFi networks");
+    sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "bt", "BLE scan");
     sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "led <mode>", "RGB LED: on/off/color/blink");
     sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "sd [ls|cat|rm]", "SD card status / files");
     sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "ota <url>", "update firmware over HTTP");
@@ -350,6 +352,30 @@ static void cmd_wifi_impl(sb_t *sb, int argc, char **argv)
             sb_line(sb, "AP SSID: %s", acfg.ap.ssid);
         }
         sb_line(sb, "AP IP: " IPSTR, IP2STR(&aip.ip));
+    }
+}
+
+/* BLE scan: run one NimBLE GAP scan window and list nearby advertisers. */
+static void cmd_bt_impl(sb_t *sb)
+{
+    ble_scan_dev_t devs[BLE_SCAN_MAX_DEVICES];
+    int n = ble_scan(devs, BLE_SCAN_MAX_DEVICES, 5000);
+    if (n < 0) {
+        sb_line(sb, "BLE not ready");
+        return;
+    }
+    if (n == 0) {
+        sb_line(sb, "No BLE devices found");
+        return;
+    }
+    sb_line(sb, "BLE devices:");
+    for (int i = 0; i < n; i++) {
+        const char *name = devs[i].name[0] ? devs[i].name : "(no name)";
+        sb_line(sb, "  %-24s %02x:%02x:%02x:%02x:%02x:%02x  %4d dBm",
+                name,
+                devs[i].addr[5], devs[i].addr[4], devs[i].addr[3],
+                devs[i].addr[2], devs[i].addr[1], devs[i].addr[0],
+                devs[i].rssi);
     }
 }
 
@@ -748,6 +774,8 @@ static const char *execute(const char *line)
         cmd_cpu_impl(&sb);
     } else if (!strcmp(name, "wifi")) {
         cmd_wifi_impl(&sb, argc, argv);
+    } else if (!strcmp(name, "bt") || !strcmp(name, "ble")) {
+        cmd_bt_impl(&sb);
     } else if (!strcmp(name, "led")) {
         cmd_led_impl(&sb, argc, argv);
     } else if (!strcmp(name, "sd")) {

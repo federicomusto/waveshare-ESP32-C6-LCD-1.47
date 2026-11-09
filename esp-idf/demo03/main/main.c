@@ -8,12 +8,13 @@
  * green=done, red=failed).
  *
  * Reuses the shared st7789 + sd_card components and the WiFi manager + shell
- * copied from demo02. No BLE here — the OTA image is smaller and the two OTA
- * partitions leave room for it.
+ * copied from demo02, including the BLE scan (`bt`) command and the idle
+ * screensaver (drifting clock + IP/MAC after 60 s of inactivity).
  */
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
 #include "sdkconfig.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -29,6 +30,7 @@
 #include "shell.h"
 #include "sd_card.h"
 #include "ota.h"
+#include "ble_scan.h"
 #include "version.h"
 
 static const char *TAG = "demo03";
@@ -36,8 +38,24 @@ static const char *TAG = "demo03";
 #define LED_GPIO  8
 #define BOOT_BTN  9
 
+/* --- Screensaver (ported from demo02) --- */
+#define TIMEZONE_OFFSET_H  1      /* CET (UTC+1); change for your region */
+#define SA_IDLE_MS         60000  /* idle time before the screensaver kicks in */
+#define SA_MOVE_MS         3000   /* the clock text drifts every 3 s */
+#define SA_COUNT_Y         150    /* y of the countdown line */
+
 static st7789_ctx_t lcd;
 static uint16_t W, H;
+
+/* Screensaver state (touched only from shell_tick, single thread). */
+static bool    sa_on = false;              /* True while the screensaver shows */
+static int64_t sa_last_press;              /* last BOOT press (resets idle timer) */
+static int64_t sa_last_move;               /* when the clock last moved */
+static int     sa_last_count = -1;         /* last countdown drawn (avoid redraw) */
+static int     ip_x, ip_y, ip_dx, ip_dy;   /* IP+MAC block position + drift */
+static int     sa_x, sa_y, sa_dx, sa_dy;   /* clock text position + drift */
+static char    sa_ip[16];                  /* board IP, shown on both screens */
+static char    sa_mac[18];                 /* board MAC, shown under the IP */
 
 /* --- Onboard WS2812 RGB LED (RGB order, FMT_RGB) --- */
 static led_strip_handle_t strip;
@@ -70,6 +88,28 @@ const char *led_state(void) { return s_led_state; }
 /* Blink the LED while the state is "blink" (driven from the shell tick). */
 static bool s_blink_on = false;
 static int64_t s_blink_t0 = 0;
+
+/* --- Time helpers (used by the screensaver clock) --- */
+static const char *tz_suffix(void)
+{
+    static char b[8];
+    if (TIMEZONE_OFFSET_H == 0) {
+        return "UTC";
+    }
+    snprintf(b, sizeof(b), "UTC%c%d",
+             TIMEZONE_OFFSET_H > 0 ? '+' : '-', abs(TIMEZONE_OFFSET_H));
+    return b;
+}
+
+static void local_time_str(char *buf, size_t len)
+{
+    time_t t = time(NULL) + TIMEZONE_OFFSET_H * 3600;
+    struct tm tm;
+    gmtime_r(&t, &tm);
+    snprintf(buf, len, "%04d-%02d-%02d %02d:%02d:%02d %s",
+             tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+             tm.tm_hour, tm.tm_min, tm.tm_sec, tz_suffix());
+}
 
 /* --- LCD helpers (landscape 320x172, scale-1 5x7 font) --- */
 static void lcd_text_center(int y, const char *s, uint16_t color)
@@ -115,18 +155,30 @@ static void ota_lcd_progress(int pct, const char *status)
     }
 }
 
-/* Connected screen: version + IP + MAC + boot partition + OTA hint. */
+/* Countdown line (bottom of the connected screen), refreshed once per second. */
+static void draw_countdown(int remaining)
+{
+    st7789_fill_rect(&lcd, 6, SA_COUNT_Y, 200, 8, ST7789_COLOR_BLACK);
+    char b[32];
+    snprintf(b, sizeof(b), "Screensaver in %ds", remaining);
+    st7789_text(&lcd, b, 6, SA_COUNT_Y, ST7789_COLOR_GREEN, 1);
+}
+
+/* Connected screen: version + IP + MAC + boot partition + OTA hint + countdown.
+ * Also stashes the IP/MAC for the screensaver and (re)starts the idle timer. */
 static void show_connected(const char *ip)
 {
+    strlcpy(sa_ip, ip, sizeof(sa_ip));
+    wm_get_sta_mac(sa_mac, sizeof(sa_mac));
+    sa_last_press = esp_timer_get_time();   /* (re)start the 60 s idle window */
+    sa_last_count = SA_IDLE_MS / 1000;
+
     st7789_fill(&lcd, ST7789_COLOR_BLACK);
     char l1[48], l2[48], l3[48], l4[48];
 
     snprintf(l1, sizeof(l1), "demo03 v" APP_VERSION);
     snprintf(l2, sizeof(l2), "IP: %s", ip);
-
-    char mac[18] = "?";
-    wm_get_sta_mac(mac, sizeof(mac));
-    snprintf(l3, sizeof(l3), "MAC: %s", mac);
+    snprintf(l3, sizeof(l3), "MAC: %s", sa_mac);
 
     const esp_partition_t *run = esp_ota_get_running_partition();
     snprintf(l4, sizeof(l4), "boot: %s", run ? run->label : "?");
@@ -137,13 +189,33 @@ static void show_connected(const char *ip)
     lcd_text_center(72, l4, ST7789_COLOR_YELLOW);
     lcd_text_center(104, "telnet <ip> 23", ST7789_COLOR_CYAN);
     lcd_text_center(124, "then: ota <url>", ST7789_COLOR_CYAN);
+    draw_countdown(SA_IDLE_MS / 1000);
 }
 
-/* Runs while the shell is idle (accept/recv timeouts). Blinks the LED. */
+/* Screensaver screen: black background + two drifting text blocks — the
+ * IP/MAC move together, the clock (date + time + version) drifts on its own. */
+static void draw_screensaver(const char *ip)
+{
+    char b[48], m[32], t[48], tv[64];
+    st7789_fill(&lcd, ST7789_COLOR_BLACK);
+    snprintf(b, sizeof(b), "IP: %s", ip);
+    st7789_text(&lcd, b, ip_x, ip_y, ST7789_COLOR_WHITE, 1);
+    snprintf(m, sizeof(m), "MAC: %s", sa_mac);
+    st7789_text(&lcd, m, ip_x, ip_y + 12, ST7789_COLOR_WHITE, 1);
+    local_time_str(t, sizeof(t));
+    snprintf(tv, sizeof(tv), "%s v%s", t, APP_VERSION);
+    st7789_text(&lcd, tv, sa_x, sa_y, ST7789_COLOR_CYAN, 1);
+}
+
+/* Screensaver + LED tick (runs while the shell is idle). Mirrors demo02:
+ * counts down 60 s of inactivity, then switches to the black screensaver;
+ * a BOOT press returns to the connected screen. */
 static void shell_tick(void)
 {
+    int64_t now = esp_timer_get_time();
+
+    /* Manual 'led blink' mode: ~1 s on/off. */
     if (strcmp(s_led_state, "blink") == 0) {
-        int64_t now = esp_timer_get_time();
         if (now - s_blink_t0 > 500000LL) {
             s_blink_t0 = now;
             s_blink_on = !s_blink_on;
@@ -153,6 +225,59 @@ static void shell_tick(void)
                 rgb_off();
             }
         }
+    }
+
+    /* BOOT press (debounced): exit the screensaver + restart the countdown. */
+    if (gpio_get_level(BOOT_BTN) == 0) {
+        vTaskDelay(pdMS_TO_TICKS(30));
+        if (gpio_get_level(BOOT_BTN) == 0) {
+            if (sa_on) {
+                sa_on = false;
+            }
+            show_connected(sa_ip);
+            while (gpio_get_level(BOOT_BTN) == 0) {
+                vTaskDelay(pdMS_TO_TICKS(20));   /* wait for release */
+            }
+        }
+    }
+
+    if (!sa_on) {
+        /* Connected screen: refresh only the countdown line, once per second. */
+        int64_t remaining_ms = SA_IDLE_MS - (now - sa_last_press) / 1000;
+        int count = (int)((remaining_ms + 999) / 1000);   /* ceiling -> seconds */
+        if (count < 0) {
+            count = 0;
+        }
+        if (count != sa_last_count) {
+            sa_last_count = count;
+            if (count == 0) {
+                /* Time's up: enter the screensaver and switch the LED off. */
+                sa_on = true;
+                sa_last_move = now;
+                rgb_off();
+                ip_x = 8; ip_y = 10; ip_dx = 1;  ip_dy = 1;
+                sa_x = 8;  sa_y = 44; sa_dx = -1; sa_dy = 1;
+                draw_screensaver(sa_ip);
+            } else {
+                draw_countdown(count);           /* only the seconds line */
+            }
+        }
+        return;
+    }
+
+    /* Screensaver showing: move both text blocks every 3 s, bouncing off the
+     * edges. The W/H limits are the text widths, so nothing clips. */
+    if ((now - sa_last_move) >= SA_MOVE_MS * 1000LL) {
+        sa_last_move = now;
+        ip_x += ip_dx * 12;
+        ip_y += ip_dy * 12;
+        if (ip_x <= 0 || ip_x > W - 150) { ip_dx = -ip_dx; ip_x += ip_dx * 12; }
+        if (ip_y <= 0 || ip_y > H - 20)  { ip_dy = -ip_dy; ip_y += ip_dy * 12; }
+        sa_x += sa_dx * 12;
+        sa_y += sa_dy * 12;
+        if (sa_x <= 0 || sa_x > W - 200) { sa_dx = -sa_dx; sa_x += sa_dx * 12; }
+        if (sa_y <= 0 || sa_y > H - 12)  { sa_dy = -sa_dy; sa_y += sa_dy * 12; }
+        draw_screensaver(sa_ip);
     }
 }
 
@@ -233,6 +358,9 @@ void app_main(void)
 
     /* WiFi (STA mode). */
     wm_init();
+
+    /* BLE (NimBLE host + controller) for the `bt` shell command. */
+    ble_scan_init();
 
     /* Wire the OTA progress callback to the LCD. */
     ota_set_progress_cb(ota_lcd_progress);

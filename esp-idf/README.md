@@ -76,8 +76,8 @@ the MAC); the screensaver shows IP + MAC + date/time + firmware version.
 
 ## demo03 — OTA update over HTTP
 
-Same WiFi manager + remote shell as demo02 (minus BLE), plus over-the-air
-firmware updates:
+Same WiFi manager + remote shell as demo02 (including the `bt` BLE scan and
+the idle screensaver), plus over-the-air firmware updates:
 
 - `main/ota.c` — the `ota <url>` command. Downloads the .bin over plain HTTP,
   saves it to `/sdcard/fw.bin` (staging, so a local copy is kept) and applies
@@ -108,7 +108,9 @@ SD card — `ls [path]`, `cat <file>`, `rm <file>`, a small line editor
 delete, `p` print, `w` save, `x` save+quit, `q` quit, `h` help), and
 `time sync` (NTP time update against pool.ntp.org). The shell streams the OTA
 progress live (download/write in ~10% steps); the connected LCD screen shows
-IP, MAC and the boot partition (ota_0/ota_1).
+IP, MAC and the boot partition (ota_0/ota_1). After 60 s of inactivity the LCD
+switches to a screensaver (drifting clock with date/time/version plus the
+IP/MAC block); press BOOT to return.
 
 Note: plain HTTP is unauthenticated — fine for a local-network demo; for a
 real deployment switch to `esp_https_ota` + a CA cert (same flow, TLS
