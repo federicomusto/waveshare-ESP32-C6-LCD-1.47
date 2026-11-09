@@ -102,7 +102,7 @@ static int64_t led_blink_t0;
 /* Low-level primitives: always drive the hardware, no mode gating. */
 static void set_rgb(uint8_t r, uint8_t g, uint8_t b)
 {
-    /* WS2812 is GRB order on the wire, but led_strip reorders for us. */
+    /* led_strip takes RGB and reorders per the FMT_RGB config above. */
     led_strip_set_pixel(strip, 0, r, g, b);
     led_strip_refresh(strip);
 }
@@ -320,10 +320,15 @@ static void sa_tick(void)
 {
     int64_t now = esp_timer_get_time();
 
-    /* Manual blink mode ('led blink'): ~1 s white on/off. */
+    /* Manual blink mode ('led blink'): ~1 s on/off in the selected color
+     * (the last 'led <color>' choice, white by default). */
     if (led_mode == LED_BLINK) {
         int64_t cyc = (now - led_blink_t0) / 1000 % 1000;
-        set_white((cyc < 500) ? 255 : 0);
+        if (cyc < 500) {
+            set_rgb(led_cr, led_cg, led_cb);
+        } else {
+            rgb_off();
+        }
     }
 
     /* BOOT press (debounced): exit screensaver + restart the countdown. */
@@ -460,7 +465,9 @@ void app_main(void)
         .strip_gpio_num = LED_GPIO,
         .max_leds = 1,
         .led_model = LED_MODEL_WS2812,
-        .color_component_format = LED_STRIP_COLOR_COMPONENT_FMT_GRB,
+        /* The onboard LED is RGB order (not the usual GRB), confirmed on
+         * hardware: with GRB, red and green came out swapped. */
+        .color_component_format = LED_STRIP_COLOR_COMPONENT_FMT_RGB,
     };
     led_strip_rmt_config_t rmt_config = {
         .clk_src = RMT_CLK_SRC_DEFAULT,
