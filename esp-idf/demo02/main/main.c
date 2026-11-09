@@ -90,16 +90,19 @@ static char sa_mac[18];                   /* board MAC, shown under the IP */
 static char sa_ssid[33];                  /* connected SSID (connected screen) */
 
 /* --- LED helpers --- */
-/* Master switch: when false, every set_* is a no-op that clears the LED. */
-static bool led_enabled = true;
+/* Manual LED modes set from the shell. LED_AUTO lets the state machine drive
+ * the LED (blink in AP, white when connected, off in the screensaver, red on
+ * failure); the other modes override it. */
+typedef enum { LED_AUTO, LED_ON, LED_OFF, LED_COLOR, LED_BLINK } led_mode_t;
 
+static led_mode_t led_mode = LED_AUTO;
+static uint8_t led_cr = 255, led_cg = 255, led_cb = 255;  /* LED_COLOR */
+static int64_t led_blink_t0;
+
+/* Low-level primitives: always drive the hardware, no mode gating. */
 static void set_rgb(uint8_t r, uint8_t g, uint8_t b)
 {
     /* WS2812 is GRB order on the wire, but led_strip reorders for us. */
-    if (!led_enabled) {
-        led_strip_clear(strip);
-        return;
-    }
     led_strip_set_pixel(strip, 0, r, g, b);
     led_strip_refresh(strip);
 }
@@ -119,16 +122,36 @@ static void set_red(void)
     set_rgb(255, 0, 0); /* solid red = failure indicator */
 }
 
-/* Toggle the RGB LED from the shell (`led on` / `led off`). On re-enable,
- * restore the color that matches the current state (the screensaver stays
- * dark; the AP blink resumes on the next led_tick). */
-void led_set_enabled(bool on)
+/* --- Shell-facing LED control (`led on|off|blink|<color>|auto`) --- */
+void led_set_on(void)
 {
-    led_enabled = on;
-    if (!on) {
-        rgb_off();
-        return;
-    }
+    led_mode = LED_ON;
+    set_white(255);
+}
+
+void led_set_off(void)
+{
+    led_mode = LED_OFF;
+    rgb_off();
+}
+
+void led_set_color(uint8_t r, uint8_t g, uint8_t b)
+{
+    led_mode = LED_COLOR;
+    led_cr = r; led_cg = g; led_cb = b;
+    set_rgb(r, g, b);
+}
+
+void led_set_blink(void)
+{
+    led_mode = LED_BLINK;
+    led_blink_t0 = esp_timer_get_time();
+}
+
+void led_set_auto(void)
+{
+    led_mode = LED_AUTO;
+    /* Restore the color that matches the current state. */
     if (sa_on) {
         rgb_off();
     } else if (s_state == STATE_CONNECTED) {
@@ -136,11 +159,18 @@ void led_set_enabled(bool on)
     } else if (s_state == STATE_FAILED) {
         set_red();
     }
+    /* STATE_AP: led_tick() resumes blinking on its next call. */
 }
 
-bool led_get_enabled(void)
+const char *led_state(void)
 {
-    return led_enabled;
+    switch (led_mode) {
+    case LED_ON:    return "on";
+    case LED_OFF:   return "off";
+    case LED_COLOR: return "color";
+    case LED_BLINK: return "blink";
+    default:        return "auto";
+    }
 }
 
 /* --- Display helpers (ported from main.py show()/show_ap()) --- */
@@ -250,7 +280,9 @@ static void draw_connected(const char *ip, const char *ssid)
 {
     /* Static 'connected' screen; the countdown line is updated separately
      * (draw_countdown) so only that one line is refreshed each second. */
-    set_white(255);
+    if (led_mode == LED_AUTO) {
+        set_white(255);   /* connected = solid white, unless overridden */
+    }
     char l2[40], l3[40], l4[40], l5[40];
     snprintf(l2, sizeof(l2), "%s", ssid ? ssid : "");
     snprintf(l3, sizeof(l3), "IP: %s", ip);
@@ -288,6 +320,12 @@ static void sa_tick(void)
 {
     int64_t now = esp_timer_get_time();
 
+    /* Manual blink mode ('led blink'): ~1 s white on/off. */
+    if (led_mode == LED_BLINK) {
+        int64_t cyc = (now - led_blink_t0) / 1000 % 1000;
+        set_white((cyc < 500) ? 255 : 0);
+    }
+
     /* BOOT press (debounced): exit screensaver + restart the countdown. */
     if (gpio_get_level(BOOT_BTN) == 0) {
         vTaskDelay(pdMS_TO_TICKS(30));
@@ -318,7 +356,9 @@ static void sa_tick(void)
                 /* Time's up: enter the screensaver and switch the LED off. */
                 sa_on = true;
                 sa_last_move = now;
-                rgb_off();
+                if (led_mode == LED_AUTO) {
+                    rgb_off();
+                }
                 ip_x = 8; ip_y = 10; ip_dx = 1;  ip_dy = 1;
                 sa_x = 8;  sa_y = 44; sa_dx = -1; sa_dy = 1;
                 draw_screensaver(sa_ip);
@@ -352,6 +392,7 @@ static void sa_tick(void)
 /* Sync time, show the connected screen, then run the shell forever. */
 static void enter_connected(const char *ip, const char *ssid)
 {
+    s_state = STATE_CONNECTED;
     strlcpy(sa_ip, ip, sizeof(sa_ip));
     strlcpy(sa_ssid, ssid ? ssid : "", sizeof(sa_ssid));
     wm_get_sta_mac(sa_mac, sizeof(sa_mac));

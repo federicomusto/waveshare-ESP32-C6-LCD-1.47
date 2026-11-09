@@ -35,9 +35,13 @@
 #include "ble_scan.h"
 #include "version.h"
 
-/* Provided by main.c — master switch for the onboard WS2812 RGB LED. */
-extern void led_set_enabled(bool on);
-extern bool led_get_enabled(void);
+/* Provided by main.c — control the onboard WS2812 RGB LED. */
+extern void led_set_on(void);
+extern void led_set_off(void);
+extern void led_set_color(uint8_t r, uint8_t g, uint8_t b);
+extern void led_set_blink(void);
+extern void led_set_auto(void);
+extern const char *led_state(void);
 
 static const char *TAG = "shell";
 
@@ -232,7 +236,7 @@ static void cmd_help_impl(sb_t *sb)
     sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "wifi", "WiFi status");
     sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "wifi scan", "list visible WiFi networks");
     sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "bt", "BLE scan");
-    sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "led on|off", "control the RGB LED");
+    sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "led <mode>", "RGB LED: on/off/color/blink");
     sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "gpio <pin>", "read a GPIO pin");
     sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "spi", "SPI bus + onboard devices");
     sb_line(sb, "  " C_CYAN "%-20s" C_RESET " %s", "i2c scan [sda] [scl]", "scan I2C bus (default 18 19)");
@@ -361,18 +365,22 @@ static void cmd_bt_impl(sb_t *sb)
 static void cmd_led_impl(sb_t *sb, int argc, char **argv)
 {
     if (argc >= 2) {
-        if (!strcmp(argv[1], "on")) {
-            led_set_enabled(true);
-            sb_line(sb, "LED on");
-            return;
-        }
-        if (!strcmp(argv[1], "off")) {
-            led_set_enabled(false);
-            sb_line(sb, "LED off");
-            return;
-        }
+        const char *a = argv[1];
+        if (!strcmp(a, "on"))          { led_set_on();                sb_line(sb, "LED on");      return; }
+        if (!strcmp(a, "off"))         { led_set_off();               sb_line(sb, "LED off");     return; }
+        if (!strcmp(a, "blink"))       { led_set_blink();             sb_line(sb, "LED blink");   return; }
+        if (!strcmp(a, "auto"))        { led_set_auto();              sb_line(sb, "LED auto");    return; }
+        if (!strcmp(a, "red"))         { led_set_color(255, 0, 0);     sb_line(sb, "LED red");     return; }
+        if (!strcmp(a, "green"))       { led_set_color(0, 255, 0);     sb_line(sb, "LED green");   return; }
+        if (!strcmp(a, "blue"))        { led_set_color(0, 0, 255);     sb_line(sb, "LED blue");    return; }
+        if (!strcmp(a, "cyan"))        { led_set_color(0, 255, 255);   sb_line(sb, "LED cyan");    return; }
+        if (!strcmp(a, "magenta"))     { led_set_color(255, 0, 255);   sb_line(sb, "LED magenta"); return; }
+        if (!strcmp(a, "yellow"))      { led_set_color(255, 255, 0);   sb_line(sb, "LED yellow");  return; }
+        if (!strcmp(a, "white"))       { led_set_color(255, 255, 255); sb_line(sb, "LED white");   return; }
+        sb_line(sb, C_RED "unknown led arg: %s" C_RESET, a);
+        return;
     }
-    sb_line(sb, "LED: %s", led_get_enabled() ? "on" : "off");
+    sb_line(sb, "LED: %s", led_state());
 }
 
 static void cmd_gpio_impl(sb_t *sb, int argc, char **argv)
