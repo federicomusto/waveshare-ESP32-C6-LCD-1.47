@@ -63,7 +63,7 @@ static const char *TAG = "demo02";
 #define SA_IDLE_MS          60000  /* idle time before the screensaver kicks in */
 #define SA_MOVE_MS          3000   /* the clock text moves every 3 s */
 #define SA_COLOR_MS         1500   /* RGB color cycle period */
-#define SA_COUNT_Y          92     /* y of the countdown line */
+#define SA_COUNT_Y          107    /* y of the countdown line */
 
 static st7789_ctx_t lcd;
 static led_strip_handle_t strip;
@@ -231,12 +231,13 @@ static void draw_connected(const char *ip, const char *ssid)
     /* Static 'connected' screen; the countdown line is updated separately
      * (draw_countdown) so only that one line is refreshed each second. */
     set_white(255);
-    char l2[40], l3[40], l4[40];
+    char l2[40], l3[40], l4[40], l5[40];
     snprintf(l2, sizeof(l2), "%s", ssid ? ssid : "");
     snprintf(l3, sizeof(l3), "IP: %s", ip);
-    snprintf(l4, sizeof(l4), "Shell: %s:%d", ip, SHELL_PORT);
-    const char *lines[4] = { "Connected", l2, l3, l4 };
-    show(lines, 4, GREEN);
+    snprintf(l4, sizeof(l4), "MAC: %s", sa_mac);
+    snprintf(l5, sizeof(l5), "Shell: %s:%d", ip, SHELL_PORT);
+    const char *lines[5] = { "Connected", l2, l3, l4, l5 };
+    show(lines, 5, GREEN);
 }
 
 static void draw_countdown(int remaining)

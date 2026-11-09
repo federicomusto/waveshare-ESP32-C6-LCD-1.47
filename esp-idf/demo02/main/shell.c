@@ -436,6 +436,11 @@ static void cmd_status_impl(sb_t *sb)
     } else {
         sb_line(sb, "WiFi: not connected");
     }
+    uint8_t mac[6];
+    if (esp_wifi_get_mac(WIFI_IF_STA, mac) == ESP_OK) {
+        sb_line(sb, "MAC: %02X:%02X:%02X:%02X:%02X:%02X",
+                mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    }
     size_t total = heap_caps_get_total_size(MALLOC_CAP_INTERNAL);
     size_t freeb = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
     sb_line(sb, "Heap: %u KB free / %u KB used",
