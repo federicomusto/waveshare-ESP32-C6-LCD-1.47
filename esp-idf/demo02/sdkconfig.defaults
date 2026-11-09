@@ -1,0 +1,12 @@
+# Waveshare ESP32-C6-LCD-1.47 has 4 MB flash; the example default is 2 MB.
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+
+# Custom partition table (2 MB factory app). The WiFi/lwIP/mbedTLS stack makes
+# the binary ~1 MB; the 1 MB single-app default would leave it nearly full.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# Bluetooth LE (NimBLE host + on-chip controller) for the `bt` shell command.
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BT_CONTROLLER_ENABLED=y

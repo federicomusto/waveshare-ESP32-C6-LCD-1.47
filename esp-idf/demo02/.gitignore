@@ -1,0 +1,5 @@
+# ESP-IDF build artifacts (regenerated on every build)
+build/
+sdkconfig
+sdkconfig.old
+managed_components/

@@ -27,9 +27,10 @@ development board (1.47" 172×320 ST7789 IPS LCD), in two flavors:
   - `main.py` — boot flow: auto-connect, AP config portal, shell, screensaver.
   - `wifi_manager.py` — AP hotspot + web config + STA connect logic.
   - `shell.py` — TCP command shell (mem, cpu, wifi, gpio, spi, i2c scan, ...).
-- `esp-idf/` — native C port of the ST7789 driver for ESP-IDF v5.5.x
-  (init, fill, fill_rect, rect, text with a built-in 5x7 font, software
-  rotation) plus a demo app. See [`esp-idf/README.md`](esp-idf/README.md).
+- `esp-idf/` — native C port for ESP-IDF: the ST7789 driver (init, fill,
+  fill_rect, rect, text with a built-in 5x7 font, software rotation) plus
+  demo01 (interactive demo) and `esp-idf/demo02/` (WiFi manager + shell +
+  BLE scan). See [`esp-idf/README.md`](esp-idf/README.md).
 
 ## Pinout
 
@@ -65,9 +66,10 @@ Commands: `help`, `mem`, `cpu`, `wifi`, `wifi scan`, `gpio <pin>`, `spi`,
 `i2c scan [sda] [scl]`, `freq`, `flash`, `uname`, `version`, `uptime`,
 `time`, `status`, `check`, `exit`.
 
-Note: BLE scanning (`bt`) is disabled — MicroPython v1.29.0 on the ESP32-C6
-crashes (Guru Meditation in NimBLE) on an active scan and hangs on a passive
-scan while WiFi is active.
+Note: on **MicroPython** v1.29.0 the `bt` BLE scan is disabled — it crashes
+(Guru Meditation in NimBLE) on an active scan and hangs on a passive scan
+while WiFi is active. The **ESP-IDF** port (`esp-idf/demo02/`) has no such
+limitation and ships a working `bt` BLE scan.
 
 RGB LED states: white blink = AP mode, solid white = connected,
 solid red = connection failed (auto-returns to AP after 5 s).
@@ -116,9 +118,10 @@ through colors; press BOOT to return to the connected screen.
 
 The `esp-idf/` directory holds a native C port of the ST7789 driver — same
 verified init sequence (MADCTL `0x00`, COLMOD `0x55`, INVON), column offset 34
-and software rotation as the MicroPython version — plus the interactive
-demo01. Requires ESP-IDF v6.1, target `esp32c6`, 4 MB flash (set via
-`sdkconfig.defaults`).
+and software rotation as the MicroPython version — plus two apps:
+demo01 (interactive demo) and demo02 (WiFi manager + TCP shell + BLE scan).
+Requires ESP-IDF v6.1, target `esp32c6`, 4 MB flash (set via
+`sdkconfig.defaults`; demo02 uses a 2 MB factory partition).
 
 See [`esp-idf/README.md`](esp-idf/README.md) for the API and build/flash
 instructions (note: after `idf.py flash` the LCD needs a manual reset).

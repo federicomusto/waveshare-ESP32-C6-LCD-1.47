@@ -1,8 +1,12 @@
-# ST7789 driver — ESP-IDF (C)
+# ESP-IDF (C) port — Waveshare ESP32-C6-LCD-1.47
 
-Native C port of the MicroPython `st7789.py` driver for the
-Waveshare ESP32-C6-LCD-1.47 (non-touch, 172×320 ST7789 IPS LCD),
-verified on hardware.
+Native C port of the drivers and demos for the Waveshare ESP32-C6-LCD-1.47
+(non-touch, 172×320 ST7789 IPS LCD), verified on hardware. One shared ST7789
+driver plus two apps:
+
+- **demo01** — interactive 3-screen demo (at this level: `main/`).
+- **demo02** — WiFi manager + TCP shell + BLE scan (in `demo02/`), port of the
+  MicroPython `demo/demo02/`.
 
 ## Requirements
 
@@ -11,24 +15,54 @@ verified on hardware.
 
 ## Build & flash
 
+From `esp-idf/` (demo01) or `esp-idf/demo02/` (demo02):
+
 ```
 idf.py set-target esp32c6
 idf.py build
 idf.py -p /dev/ttyACM0 flash
 ```
 
-Flash size is set to 4 MB via `sdkconfig.defaults`.
+Flash size is 4 MB (via `sdkconfig.defaults`). demo02 also uses a custom 2 MB
+factory partition (`demo02/partitions.csv`) — the WiFi + BLE stack makes that
+binary ~1.4 MB, which no longer fits the 1 MB single-app default.
 
-NOTE: after `idf.py flash`, the LCD stays black until the board is
-manually reset (RST button). The flash auto-reset (RTS) does not
-reliably bring the ST7789 up. A normal power-cycle also works.
+NOTE: after `idf.py flash`, the LCD stays black until the board is manually
+reset (RST button). The flash auto-reset (RTS) does not reliably bring the
+ST7789 up. A normal power-cycle also works.
 
-## Demo
+## demo01 — interactive 3-screen demo
 
-`main/main.c` is an interactive 3-screen demo (port of the MicroPython
-`demo/demo01.py`), toggled with the BOOT button (GPIO9, active LOW):
-1. board specs, 2. "HELLO Federico!" + bouncing square, 3. WS2812 LED cycle.
-It drives the LCD via `components/st7789/` and the RGB LED via `led_strip`.
+`main/main.c` (port of the MicroPython `demo/demo01.py`), toggled with the
+BOOT button (GPIO9, active LOW): 1. board specs, 2. "HELLO Federico!" +
+bouncing square, 3. WS2812 LED cycle. Drives the LCD via `components/st7789/`
+and the RGB LED via `led_strip`.
+
+## demo02 — WiFi manager + remote shell + BLE scan
+
+Port of the MicroPython `demo/demo02/` (main.py + wifi_manager.py + shell.py):
+
+- `main/main.c` — boot flow (auto-connect / AP portal), LED state machine,
+  60 s screensaver.
+- `main/wifi_manager.c` — NVS credentials, STA connect, AP hotspot, web
+  config page on port 80.
+- `main/shell.c` — TCP command shell on port 23.
+- `main/ble_scan.c` — NimBLE GAP scan behind the `bt` command.
+
+On first boot (no saved network) the board opens the hotspot
+`ESP32-C6-Config` on `192.168.4.1`; connect a phone and open
+http://192.168.4.1 to pick a network and enter the password. Credentials are
+saved to NVS and reused on every boot. Hold **BOOT** within 5 s of reset to
+force the portal.
+
+Once connected, `telnet <ip>` (port 23) gives a command shell:
+`help`, `mem`, `cpu`, `wifi`, `wifi scan`, `bt`, `gpio <pin>`, `spi`,
+`i2c scan [sda] [scl]`, `freq`, `flash`, `uname`, `version`, `uptime`,
+`time`, `status`, `check`, `exit`.
+
+Unlike the MicroPython build (where BLE scanning crashes/hangs while WiFi is
+active), the native ESP-IDF stack scans BLE fine alongside WiFi: `bt` performs
+a real GAP scan and lists nearby advertisers (name / address / RSSI).
 
 ## Driver API (`components/st7789/`)
 

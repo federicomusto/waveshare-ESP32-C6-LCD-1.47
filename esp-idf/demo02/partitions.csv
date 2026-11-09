@@ -1,0 +1,6 @@
+# Name,   Type, SubType, Offset,   Size,     Flags
+# 2 MB factory app partition (the WiFi/lwIP/mbedTLS stack makes the
+# binary ~1 MB; the 1 MB default would leave it nearly full).
+nvs,      data, nvs,     0x9000,   0x6000,
+phy_init, data, phy,     0xf000,   0x1000,
+factory,  app,  factory, 0x10000,  0x200000,
